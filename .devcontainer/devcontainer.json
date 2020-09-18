@@ -1,0 +1,25 @@
+{
+    "name": "Android SDK Development",
+    "image": "mobiledevops/android-sdk-image",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "vscjava.vscode-java-pack",
+                "redhat.vscode-xml",
+                "vscjava.vscode-gradle",
+                "ms-vscode.cpptools"
+            ]
+        }
+    },
+    "remoteUser": "root",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/home/mobiledevops/app,type=bind,consistency=cached",
+    "workspaceFolder": "/home/mobiledevops/app",
+    "postCreateCommand": "echo 'Container is ready for Android development'",
+    "features": {
+        "ghcr.io/devcontainers/features/java:1": {
+            "version": "17",
+            "installMaven": false,
+            "installGradle": false
+        }
+    }
+}
