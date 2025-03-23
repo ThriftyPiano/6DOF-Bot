@@ -3,7 +3,11 @@ package org.firstinspires.ftc.teamcode;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.ExposureControl;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.GainControl;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.WhiteBalanceControl;
 import org.openftc.easyopencv.OpenCvPipeline;
+import org.openftc.easyopencv.OpenCvWebcam;
 import org.opencv.core.*;
 import org.opencv.calib3d.Calib3d;
 import org.opencv.imgproc.Imgproc;
@@ -14,6 +18,7 @@ import java.io.IOException;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 public class SampleDetectionPipeline extends OpenCvPipeline {
     // Image sizes
@@ -24,23 +29,16 @@ public class SampleDetectionPipeline extends OpenCvPipeline {
 
     // Perspective transformation source and destination points
     private final MatOfPoint2f imagePoints = new MatOfPoint2f(
-            // Tiles on desk
-            new Point(202, 43),    // Top-left
-            new Point(451, 47),    // Top-right
-            new Point(631, 216),    // Bottom-right
-            new Point(71, 221)    // Bottom-left
-
-            // Actual field
-            // new Point(168, 43),    // Top-left
-            // new Point(391, 44),    // Top-right
-            // new Point(473, 158),    // Bottom-right
-            // new Point(3, 163)    // Bottom-left
-            );
+        new Point(223.65736, 64.61175),    // Top-left
+        new Point(423.43104, 58.459133),    // Top-right
+        new Point(516.3818, 171.79579),    // Bottom-right
+        new Point(140.59949, 177.19447)    // Bottom-left
+    );
     private final MatOfPoint2f objectPoints = new MatOfPoint2f(
-            new Point(0, 0),       // New top-left
-            new Point(300, 0),     // New top-right
-            new Point(300, 300),   // New bottom-right
-            new Point(0, 300)      // New bottom-left
+        new Point(50, 50),       // New top-left
+        new Point(250, 50),     // New top-right
+        new Point(250, 250),   // New bottom-right
+        new Point(50, 250)      // New bottom-left
     );
 
     // Camera intrinsic parameters
@@ -48,34 +46,30 @@ public class SampleDetectionPipeline extends OpenCvPipeline {
     private final Mat distCoeffs;
     
     // Real world measurements (in mm) converted to pixel scale
-    // Tiles on desk
-    private final int warpedWidthMM = 630;
-    // Actual field
-    // private final int warpedWidthMM = 700;
+    private final int warpedWidthMM = 750;
 
     private final int sampleWidth;   // mm_to_pixel(38)
     private final int sampleHeight;  // mm_to_pixel(88)
     private final int sampleDepth;   // mm_to_pixel(38)
 
     // Camera 3D position
-    // Tiles on desk
-    private final int cameraX = 122;
-    private final int cameraY = 432;
-    private final int cameraZ = 129;
-
-    // Actual field
-    // private final int cameraX = 202;
-    // private final int cameraY = 487;
-    // private final int cameraZ = 115;
+    private final int cameraX = 149;
+    private final int cameraY = 402;
+    private final int cameraZ = 105;
 
     private boolean detectBlue = true;
+    private boolean autoAdjustCameraControls = true;
     private Telemetry telemetry;
     private YoloV8TFLiteDetector detector;
+    private OpenCvWebcam webcam;
 
     private List<RotatedRect> detections = new ArrayList<>();
+    private double brightness = 0.0;
 
-    public SampleDetectionPipeline(Context context, Telemetry telemetry, boolean detectBlue) {
+    public SampleDetectionPipeline(Context context, Telemetry telemetry,
+        OpenCvWebcam webcam, boolean detectBlue) {
         this.telemetry = telemetry;
+        this.webcam = webcam;
         this.detectBlue = detectBlue;
         detector = new YoloV8TFLiteDetector(context);
         
@@ -93,10 +87,40 @@ public class SampleDetectionPipeline extends OpenCvPipeline {
         sampleWidth = mmToPixel(38);
         sampleHeight = mmToPixel(88);
         sampleDepth = mmToPixel(38);
+
+        // Set camera controls
+        GainControl gainControl = webcam.getGainControl();
+        gainControl.setGain(0);
+        WhiteBalanceControl wbc = webcam.getWhiteBalanceControl();
+        wbc.setMode(WhiteBalanceControl.Mode.MANUAL);
+        if (detectBlue) {
+            wbc.setWhiteBalanceTemperature(6000);
+        } else {
+            wbc.setWhiteBalanceTemperature(5400);
+        }
+        ExposureControl exposureControl = webcam.getExposureControl();
+        exposureControl.setMode(ExposureControl.Mode.Manual);
+        exposureControl.setExposure(20, TimeUnit.MILLISECONDS);
     }
 
     public List<RotatedRect> getDetections() {
         return this.detections;
+    }
+
+    public double getBrightness() {
+        return this.brightness;
+    }
+
+    public boolean getDetectBlue() {
+        return this.detectBlue;
+    }
+
+    public void setDetectBlue(boolean val) {
+        this.detectBlue = val;
+    }
+
+    public void setAutoAdjustCameraControls(boolean val) {
+        this.autoAdjustCameraControls = val;
     }
 
     // Conversion functions between mm and pixel (based on warped image width)
@@ -163,6 +187,12 @@ public class SampleDetectionPipeline extends OpenCvPipeline {
         // Create segmented image based on mask.
         Mat segmented = new Mat();
         Core.bitwise_and(warped, warped, segmented, mask);
+
+        // Calculate average brightness to adjust camera exposure.
+        Mat gray = new Mat();
+        Imgproc.cvtColor(warped, gray, Imgproc.COLOR_BGR2GRAY);
+        Scalar mean = Core.mean(gray);
+        this.brightness = mean.val[0];
 
         // Convert the Mat to input tensor.
         float[][][][] inputTensor =
@@ -271,6 +301,7 @@ public class SampleDetectionPipeline extends OpenCvPipeline {
         detections.sort(Comparator.comparingDouble(
             detection -> -confs.get(detections.indexOf(detection))));
         this.detections = detections;
+        telemetry.addData("Detections", detections.size());
 
         // Calculate sample bottom rectangles.
         for (List<Point> topRect : topRectangles) {
@@ -285,12 +316,14 @@ public class SampleDetectionPipeline extends OpenCvPipeline {
             Imgproc.polylines(warped, Collections.singletonList(bottomPts), true, new Scalar(255, 255, 0), 2);
         }
 
+        // Adjust camera controls
+        adjustCameraControls();
+
         // Send telemetry data for debugging.
-        telemetry.addData("Detections", topRectangles.size());
         telemetry.update();
 
         // Return the final annotated image.
-        return warped;
+        return combineSideBySide(warped, segmented);
     }
 
     private static double maskedRatio(MatOfPoint box, Mat mask) {
@@ -322,6 +355,35 @@ public class SampleDetectionPipeline extends OpenCvPipeline {
 
     private static double distance(double x1, double y1, double x2, double y2) {
         return Math.sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
+    }
+
+    private static Mat combineSideBySide(Mat image1, Mat image2) {
+        int rows = image1.rows();
+        int cols = image1.cols();
+        Mat combinedImage = new Mat(rows, cols * 2, image1.type());
+        Mat leftROI = combinedImage.submat(0, rows, 0, cols);
+        image1.copyTo(leftROI);
+        Mat rightROI = combinedImage.submat(0, rows, cols, cols * 2);
+        image2.copyTo(rightROI);
+        return combinedImage;
+    }
+
+    private void adjustCameraControls() {
+        ExposureControl exposureControl = webcam.getExposureControl();
+        int idealBrightness = detectBlue ? 80 : 65;
+        if (autoAdjustCameraControls) {
+            int brightnessError = (int) brightness - idealBrightness;
+            if (Math.abs(brightnessError) > 5) {
+                long exposure = exposureControl.getExposure(TimeUnit.MILLISECONDS);
+                exposure -= brightnessError / 5;
+                exposureControl.setExposure(exposure, TimeUnit.MILLISECONDS);
+            }
+        }
+        telemetry.addData("Camera Exposure", "%d %d %d",
+            (int) exposureControl.getExposure(TimeUnit.MILLISECONDS),
+            (int) exposureControl.getMinExposure(TimeUnit.MILLISECONDS),
+            (int) exposureControl.getMaxExposure(TimeUnit.MILLISECONDS));
+        telemetry.addData("Brightness", brightness);
     }
 
     public class YoloV8TFLiteDetector {
