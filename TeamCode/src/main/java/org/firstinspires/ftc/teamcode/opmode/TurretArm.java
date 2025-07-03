@@ -42,6 +42,16 @@ public class TurretArm extends LinearOpMode {
             0.364  // Claw
     };
 
+    /***
+     * Increasing servo position:
+     * Turns turret counterclockwise when viewing from above
+     * Moves arm1 up
+     * Moves arm2 down
+     * Moves wrist up
+     * Turns wrist counterclockwise when viewing from front of claw
+     * Closes claw
+    */
+
     // Reference positions corresponding to 0-degree angle for each servo.
     // These values are based on the initial static position values used in TR calculations.
     // Order: Turret, Arm1, Arm2, Wrist1, Wrist2, Claw
@@ -126,7 +136,10 @@ public class TurretArm extends LinearOpMode {
                 setServoAnglesDegrees(new double[]{0, 0, 0, 0, 0, 0}, 1);
             }
             else if (gamepad1.b) {
-                setServoAnglesDegrees(new double[]{30, 30, 30, 30, 30, 30}, 1);
+                setServoAnglesDegrees(new double[]{30, 30, 30, 30, 30, 0}, 1);
+            }
+            else if (gamepad1.x) {
+                setServoAnglesDegrees(new double[]{0, 5.768, 45.842, -49.926, 0, -10}, 1);
             }
 
             if (totalMovementTime > 0) {
