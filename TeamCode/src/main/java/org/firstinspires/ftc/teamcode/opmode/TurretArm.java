@@ -86,6 +86,8 @@ public class TurretArm extends LinearOpMode {
     public double[] startPosArray = servoInitialPosArray.clone();
     public double[] endPosArray = servoInitialPosArray.clone();
 
+    public double[] xyzPos = new double[]{0, 40, 15};
+
     @Override
     public void runOpMode() {
         prevTime = movementTimer.seconds();
@@ -132,14 +134,51 @@ public class TurretArm extends LinearOpMode {
             timeElapsed += (currentTime - prevTime);
             prevTime = currentTime;
 
-            if (gamepad1.a) {
-                setServoAnglesDegrees(new double[]{0, 0, 0, 0, 0, 0}, 1);
+            boolean xyzUpdatedByDpadOrStick = false;
+            double xDelta = 0;
+            double yDelta = 0;
+            double zDelta = 0;
+
+            if (gamepad1.dpad_up) {
+                yDelta += 0.002;
             }
-            else if (gamepad1.b) {
-                setServoAnglesDegrees(new double[]{30, 30, 30, 30, 30, 0}, 1);
+            if (gamepad1.dpad_down) {
+                yDelta -= 0.002;
             }
-            else if (gamepad1.x) {
-                setServoAnglesDegrees(new double[]{0, 5.768, 45.842, -49.926, 0, -10}, 1);
+            if (gamepad1.dpad_left) {
+                xDelta -= 0.002;
+            }
+            if (gamepad1.dpad_right) {
+                xDelta += 0.002;
+            }
+
+            float stickY = gamepad1.left_stick_y;
+            // Apply deadzone to left_stick_y
+            if (Math.abs(stickY) > 0.1) {
+                if (stickY > 0) { // Stick pushed down (positive Y value)
+                    zDelta += 0.002;
+                } else { // Stick pushed up (negative Y value, stickY < -0.1)
+                    zDelta -= 0.002;
+                }
+            }
+
+            if (xDelta != 0 || yDelta != 0 || zDelta != 0) {
+                xyzPos[0] += xDelta;
+                xyzPos[1] += yDelta;
+                xyzPos[2] += zDelta;
+                setServoAnglesDegrees(calculateAngles(xyzPos), 0.2);
+                xyzUpdatedByDpadOrStick = true;
+            }
+
+            // Only process A, B, X buttons if DPad/Stick didn't command a move in this cycle
+            if (!xyzUpdatedByDpadOrStick) {
+                if (gamepad1.a) {
+                    setServoAnglesDegrees(new double[]{0, 0, 0, 0, 0, 0}, 1);
+                } else if (gamepad1.b) {
+                    setServoAnglesDegrees(new double[]{30, 30, 30, 30, 30, 0}, 1);
+                } else if (gamepad1.x) {
+                    setServoAnglesDegrees(new double[]{0, 5.768, 45.842, -49.926, 0, -10}, 1);
+                }
             }
 
             if (totalMovementTime > 0) {
@@ -160,16 +199,62 @@ public class TurretArm extends LinearOpMode {
             }
 
             // Telemetry
-            for (int i = 0; i < servoInitialPosArray.length; i++) {
-                telemetry.addData("Pos (" + SERVO_NAMES[i] + ")", "%.4f", servoInitialPosArray[i]);
-                telemetry.addData("Pos (" + SERVO_NAMES[i] + ")", "%.4f", endPosArray[i]);
+            for (int i = 0; i < servoArray.length; i++) {
+                telemetry.addData(SERVO_NAMES[i] + " Start Pos", "%.4f", startPosArray[i]);
+                telemetry.addData(SERVO_NAMES[i] + " End Pos", "%.4f", endPosArray[i]);
             }
+            telemetry.addData("XYZ Coords", "X: %.2f, Y: %.2f, Z: %.2f", xyzPos[0], xyzPos[1], xyzPos[2]);
             // Add telemetry for elapsed time
             telemetry.addData("Elapsed Time", "%.2f", timeElapsed);
             // Add telemetry for movementTimer.seconds();
             telemetry.addData("Movement Timer", "%.2f", movementTimer.seconds());
             telemetry.update();
         }
+    }
+
+    // Relative position to turret base in x, y, z (height from ground)
+    public double[] calculateAngles(double[] relativePosition) {
+        double groundDistance = Math.sqrt(Math.pow(relativePosition[0], 2) + Math.pow(relativePosition[1], 2));
+        double hoverDistance = relativePosition[2];
+
+        double p = turretHeight;
+        double q = arm1Length;
+        double r = arm2Length;
+        double s = wristLength + hoverDistance;
+        double d = groundDistance;
+        // Height difference between turret top and wrist top (target point for arm kinematics)
+        double h = p - s;
+
+        double[] armAngles_deg = new double[6];
+
+        // Turret Angle (degrees)
+        // Calculated from atan2, converted to degrees, and adjusted by -90 degrees.
+        armAngles_deg[0] = 90 - Math.toDegrees(Math.atan2(relativePosition[1], relativePosition[0]));
+
+        // Arm1 Angle (degrees, absolute, relative to horizontal)
+        // Intermediate arm1Angle_rad is kept in radians for use in arm2Angle calculation.
+        double val_for_acos = (d * d + h * h + q * q - r * r) / (2 * q * Math.sqrt(d * d + h * h));
+        val_for_acos = Math.max(-1.0, Math.min(1.0, val_for_acos)); // Clamp to avoid NaN from acos
+        double arm1Angle_rad = Math.atan2(h, d) - Math.acos(val_for_acos);
+        armAngles_deg[1] = Math.toDegrees(arm1Angle_rad);
+
+        // Arm2 Angle (degrees, absolute, relative to horizontal)
+        // Calculated using arm1Angle_rad (in radians) for sin/cos, then result converted to degrees.
+        // This formula determines the absolute angle arm2 needs to make with the horizontal
+        // to point from its pivot (end of arm1) to the target.
+        double arm2Angle_rad = Math.atan2(h - q * Math.sin(arm1Angle_rad), d - q * Math.cos(arm1Angle_rad));
+        armAngles_deg[2] = Math.toDegrees(arm2Angle_rad + arm1Angle_rad);
+
+        // Wrist1 Angle (degrees)
+        // Assuming the original intent was (arm1_abs_deg + arm2_abs_deg) - 90 deg.
+        armAngles_deg[3] = 90 - Math.toDegrees(arm2Angle_rad);
+
+        // Wrist2 Angle (degrees) - Placeholder, not calculated from XYZ
+        armAngles_deg[4] = 0.0;
+        // Claw Angle (degrees) - Placeholder, not calculated from XYZ
+        armAngles_deg[5] = 0.0;
+
+        return armAngles_deg;
     }
 
     public double[] interpolatePositions(double[] startAngles, double[] endAngles, double ratio) {
