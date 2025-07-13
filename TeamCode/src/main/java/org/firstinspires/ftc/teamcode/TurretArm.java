@@ -159,10 +159,10 @@ public class TurretArm {
         return armAngles_deg;
     }
 
-    private double[] interpolatePositions(double[] startAngles, double[] endAngles, double ratio) {
-        double [] interpolatedPositions = new double[startAngles.length];
-        for (int i = 0; i < startAngles.length; i++) {
-            interpolatedPositions[i] = startAngles[i] + (endAngles[i] - startAngles[i]) * ratio;
+    private double[] interpolatePositions(double[] startPositions, double[] endPositions, double ratio) {
+        double [] interpolatedPositions = new double[startPositions.length];
+        for (int i = 0; i < startPositions.length; i++) {
+            interpolatedPositions[i] = startPositions[i] + (endPositions[i] - startPositions[i]) * ratio;
         }
         return interpolatedPositions;
     }
@@ -172,7 +172,6 @@ public class TurretArm {
         timeElapsed = 0;
         if (anglesDeg == null || anglesDeg.length != servoArray.length) {
             telemetry.addData("Error", "setServoAnglesDegrees: Invalid angles array provided.");
-            telemetry.update();
             return;
         }
 
@@ -192,7 +191,6 @@ public class TurretArm {
             double newPos = servoZeroPosArray[i] + (anglesDeg[i] / servoTRArray[i]);
             endPosArray[i] = Range.clip(newPos, 0, 1); // Update the global static position array
         }
-        telemetry.update(); // If you add telemetry, remember to update
     }
 
     public void setServoPosXYZ(double[] xyzPos, double movementTime) {
@@ -202,5 +200,24 @@ public class TurretArm {
         for (int i = 0; i < calculatedAngles.length; i++) {
             telemetry.addData("Calculated (" + servoNames[i] + ")", "%.4f", calculatedAngles[i]);
         }
+    }
+    
+    public void setSingleServoDegrees(double angleDeg, int servoIndex, double movementTime) {
+        totalMovementTime = movementTime;
+        timeElapsed = 0;
+
+        // Set startPosArray to current servo position array
+        for (int i = 0; i < servoArray.length; i++) {
+            if (servoArray[i] != null) {
+                startPosArray[i] = servoArray[i].getPosition();
+            }
+        }
+
+        if (servoTRArray[servoIndex] == 0) { // Avoid division by zero if TR is not set (should not happen after init)
+            telemetry.addData("Error", "TR not set for servo " + servoNames[servoIndex]);
+        }
+        // Formula: targetPos = zeroDegreePosition + (angleInDegrees / TurnRate)
+        double newPos = servoZeroPosArray[servoIndex] + (angleDeg / servoTRArray[servoIndex]);
+        endPosArray[servoIndex] = Range.clip(newPos, 0, 1); // Update the global static position array
     }
 }
