@@ -152,9 +152,9 @@ public class TurretArm {
         armAngles_deg[3] = - 90 + (Math.toDegrees(arm2Angle_rad) - Math.toDegrees(arm1Angle_rad));
 
         // Wrist2 Angle (degrees) - Placeholder, not calculated from XYZ
-        armAngles_deg[4] = 0.0;
+        armAngles_deg[4] = -1000;
         // Claw Angle (degrees) - Placeholder, not calculated from XYZ
-        armAngles_deg[5] = 0.0;
+        armAngles_deg[5] = -1000;
 
         return armAngles_deg;
     }
@@ -185,6 +185,9 @@ public class TurretArm {
         for (int i = 0; i < servoArray.length; i++) {
             if (servoTRArray[i] == 0) { // Avoid division by zero if TR is not set (should not happen after init)
                 telemetry.addData("Error", "TR not set for servo " + servoNames[i]);
+                continue;
+            }
+            if (anglesDeg[i] < -999) {
                 continue;
             }
             // Formula: targetPos = zeroDegreePosition + (angleInDegrees / TurnRate)
@@ -219,5 +222,12 @@ public class TurretArm {
         // Formula: targetPos = zeroDegreePosition + (angleInDegrees / TurnRate)
         double newPos = servoZeroPosArray[servoIndex] + (angleDeg / servoTRArray[servoIndex]);
         endPosArray[servoIndex] = Range.clip(newPos, 0, 1); // Update the global static position array
+    }
+
+    public void openClaw() {
+        setSingleServoDegrees(0, 5, 0.5);
+    }
+    public void closeClaw() {
+        setSingleServoDegrees(90, 5, 0.5);
     }
 }
