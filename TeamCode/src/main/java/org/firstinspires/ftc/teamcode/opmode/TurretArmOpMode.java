@@ -59,7 +59,7 @@ public class TurretArmOpMode extends LinearOpMode {
                 turretArm.setServoPosXYZ(xyzPos, 0.5);
             }
             if (gamepad1.b) {
-                turretArm.setServoAnglesDegrees(new double[]{0, 0, 0, 0, 0, 0}, 0.5);
+                turretArm.setServoAnglesDegrees(new double[]{0, 150, 120, -60, 0, 90}, 1);
             }
             if (gamepad1.x) {
                 turretArm.openClaw();

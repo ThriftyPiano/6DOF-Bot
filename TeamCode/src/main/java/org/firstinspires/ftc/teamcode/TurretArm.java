@@ -54,7 +54,6 @@ public class TurretArm {
             0.447, // Wrist2
             0.0128  // Claw
     };
-
     private static final double[] servo90DegPosArray = new double[]{
             0.9982, // Turret
             0.7504, // Arm1
@@ -95,6 +94,11 @@ public class TurretArm {
                 if (servoArray[i] != null) {
                     servoArray[i].setPosition(targetPositions[i]); // Command the servo
                 }
+            }
+
+            // Stop sending PWM signals if movement is finished.
+            if (timeElapsed == totalMovementTime) {
+                totalMovementTime = 0;
             }
 
             // Update telemetry for target (interpolated) positions
