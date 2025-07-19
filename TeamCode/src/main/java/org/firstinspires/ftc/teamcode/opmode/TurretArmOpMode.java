@@ -13,7 +13,7 @@ public class TurretArmOpMode extends LinearOpMode {
     };
     private static String[] servoHardwareNames = new String[]{"servo 1", "servo 2", "servo 6", "servo 3", "servo 4", "servo 5"};
 
-    public double[] xyzPos = new double[]{0, 40, 0};
+    public double[] xyzPos = new double[]{0, 40, 5};
 
     @Override
     public void runOpMode() {
@@ -59,7 +59,7 @@ public class TurretArmOpMode extends LinearOpMode {
                 turretArm.setServoPosXYZ(xyzPos, 0.5);
             }
             if (gamepad1.b) {
-                turretArm.setServoAnglesDegrees(new double[]{0, 150, 120, -60, 0, 90}, 1);
+                turretArm.setServoAnglesDegrees(new double[]{0, 150, 120, -90, 0, 90}, 1);
             }
             if (gamepad1.x) {
                 turretArm.openClaw();

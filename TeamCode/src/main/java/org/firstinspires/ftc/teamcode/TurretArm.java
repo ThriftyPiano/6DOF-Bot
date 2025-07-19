@@ -47,7 +47,7 @@ public class TurretArm {
     // Current target positions for servos (0.0 to 1.0)
     // Order: Turret, Arm1, Arm2, Wrist1, Wrist2, Claw
     public static double[] servoZeroPosArray = new double[]{
-            0.452, // Turret
+            0.4656, // Turret
             0.4182, // Arm1
             0.4678, // Arm2
             0.5894,   // Wrist1
@@ -55,12 +55,12 @@ public class TurretArm {
             0.0128  // Claw
     };
     private static final double[] servo90DegPosArray = new double[]{
-            0.9982, // Turret
+            0.8036, // Turret
             0.7504, // Arm1
             0.8162, // Arm2
-            1.1474,    // Wrist1
-            0.9858,    // Wrist2
-            0.2636     // Claw
+            1.1474, // Wrist1
+            0.9858, // Wrist2
+            0.2636  // Claw
     };
 
     // Auxiliary position arrays for movement interpolation
@@ -118,7 +118,7 @@ public class TurretArm {
 
     // Relative position to turret base in x, y, z (height from ground)
     private double[] calculateAngles(double[] relativePosition) {
-        double groundDistance = Math.sqrt(Math.pow(relativePosition[0], 2) + Math.pow(relativePosition[1], 2));
+        double groundDistance = Math.sqrt(relativePosition[0] * relativePosition[0] + relativePosition[1] * relativePosition[1]);
         double hoverDistance = relativePosition[2];
 
         double p = turretHeight;
