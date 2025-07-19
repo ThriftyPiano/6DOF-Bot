@@ -33,26 +33,32 @@ public class TurretArmOpMode extends LinearOpMode {
             double zDelta = 0;
 
             if (gamepad1.dpad_up) {
-                yDelta += 0.005;
+                yDelta += 0.0025;
             }
             if (gamepad1.dpad_down) {
-                yDelta -= 0.005;
+                yDelta -= 0.0025;
             }
             if (gamepad1.dpad_left) {
-                xDelta -= 0.005;
+                xDelta -= 0.0025;
             }
             if (gamepad1.dpad_right) {
-                xDelta += 0.005;
+                xDelta += 0.0025;
             }
 
             float stickY = gamepad1.left_stick_y;
             // Apply deadzone to left_stick_y
             if (Math.abs(stickY) > 0.1) {
                 if (stickY > 0) { // Stick pushed down (positive Y value)
-                    zDelta -= 0.005;
+                    zDelta -= 0.0025;
                 } else { // Stick pushed up (negative Y value, stickY < -0.1)
-                    zDelta += 0.005;
+                    zDelta += 0.0025;
                 }
+            }
+
+            if (xDelta != 0 || yDelta != 0 || zDelta != 0) {
+                xyzPos[0] += xDelta;
+                xyzPos[1] += yDelta;
+                xyzPos[2] += zDelta;
             }
 
             if (gamepad1.a) {
@@ -67,11 +73,11 @@ public class TurretArmOpMode extends LinearOpMode {
             if (gamepad1.y) {
                 turretArm.closeClaw();
             }
-
-            if (xDelta != 0 || yDelta != 0 || zDelta != 0) {
-                xyzPos[0] += xDelta;
-                xyzPos[1] += yDelta;
-                xyzPos[2] += zDelta;
+            if (gamepad1.left_bumper) {
+                turretArm.setSingleServoDegrees(-45, 4,0.5);
+            }
+            if (gamepad1.right_bumper) {
+                turretArm.setSingleServoDegrees(45, 4,0.5);
             }
 
             turretArm.run();

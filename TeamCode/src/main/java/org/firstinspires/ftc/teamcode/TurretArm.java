@@ -23,7 +23,7 @@ public class TurretArm {
      * Moves arm1 up
      * Moves arm2 down
      * Moves wrist up
-     * Turns wrist counterclockwise when viewing from front of claw
+     * Turns wrist clockwise when viewing from back of claw
      * Closes claw
     */
 
@@ -121,6 +121,7 @@ public class TurretArm {
         double groundDistance = Math.sqrt(relativePosition[0] * relativePosition[0] + relativePosition[1] * relativePosition[1]);
         double hoverDistance = relativePosition[2];
 
+        // Calculations / diagram: https://www.desmos.com/calculator/jvavsilehs?lang=en
         double p = turretHeight;
         double q = arm1Length;
         double r = arm2Length;
@@ -128,6 +129,11 @@ public class TurretArm {
         double d = groundDistance;
         // Height difference between turret top and wrist top (target point for arm kinematics)
         double h = p - s;
+
+        // Scale the vector [d, h] so that it has a maximum length of q + r
+        double scaleFactor = Math.min(1, (q + r) / Math.sqrt(d * d + h * h)) - 0.01;
+        d *= scaleFactor;
+        h *= scaleFactor;
 
         double[] armAngles_deg = new double[6];
 
@@ -171,6 +177,18 @@ public class TurretArm {
         return interpolatedPositions;
     }
 
+    // Return array of servo angles in degrees
+    public double[] getServoAnglesDegrees() {
+        double[] angles = new double[6];
+        for (int i = 0; i < servoArray.length; i++) {
+            if (servoArray[i] != null) {
+                // Calculate based on turn rate
+                angles[i] = (servoArray[i].getPosition() - servoZeroPosArray[i]) * servoTRArray[i];
+            }
+        }
+        return angles;
+    }
+
     public void setServoAnglesDegrees(double[] anglesDeg, double movementTime) {
         totalMovementTime = movementTime;
         timeElapsed = 0;
@@ -208,7 +226,7 @@ public class TurretArm {
             telemetry.addData("Calculated (" + servoNames[i] + ")", "%.4f", calculatedAngles[i]);
         }
     }
-    
+
     public void setSingleServoDegrees(double angleDeg, int servoIndex, double movementTime) {
         totalMovementTime = movementTime;
         timeElapsed = 0;
