@@ -112,9 +112,11 @@ public class PerspectiveSampleDetection extends LinearOpMode {
                 exposureControl.setExposure(exposure, TimeUnit.MILLISECONDS);
             }
             if (gamepad1.a){
+                telemetry.addData("Saving images.", "%b", true);
                 // generate a file name based on the current time yyyyMMdd_HHmmss
                 String filename = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
                 ImageSaver.saveMatToDisk(pipeline.inputImage, filename + "_input");
+                ImageSaver.saveMatToDisk(pipeline.undistortedImage, filename + "_undistorted");
                 ImageSaver.saveMatToDisk(pipeline.warpedImage, filename + "_warped");
                 ImageSaver.saveMatToDisk(pipeline.segmentedImage, filename + "_segmented");
             }

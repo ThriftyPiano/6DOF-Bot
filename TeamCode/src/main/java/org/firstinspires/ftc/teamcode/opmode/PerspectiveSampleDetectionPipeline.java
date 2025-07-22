@@ -42,7 +42,14 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
             new Point(420.65698, 58.924828),    // Top-right
             new Point(557.77985, 219.18552),    // Bottom-right
             new Point(-37.165363, 223.22482)    // Bottom-left
-        )
+        ),
+        // Arducam
+        new MatOfPoint2f(
+            new Point(214.0646, 38.12201),    // Top-left
+            new Point(437.94452, 36.919495),    // Top-right
+            new Point(615.6802, 267.4237),    // Bottom-right
+            new Point(12.225613, 241.0024)    // Bottom-left
+        ),
     };
     private final MatOfPoint2f[] objectPointsArray = {
         new MatOfPoint2f(
@@ -50,6 +57,12 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
             new Point(133.33, 53.33),     // New top-right
             new Point(133.33, 160),   // New bottom-right
             new Point(26.67, 160)      // New bottom-left
+        ),
+        new MatOfPoint2f(
+            new Point(26.67, 80),       // New top-left
+            new Point(133.33, 80),     // New top-right
+            new Point(133.33, 186.67),   // New bottom-right
+            new Point(26.67, 186.67)      // New bottom-left
         ),
         new MatOfPoint2f(
             new Point(26.67, 80),       // New top-left
@@ -74,14 +87,14 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
 
     // Camera 3D position
     private final int[][] cameraPositions = {
-        {64, 225, 65}, {96, 236, 41}
+        {64, 225, 65}, {96, 236, 41}, {163, 391, -84}
     };
     private final int cameraX = cameraPositions[CAMERA_INDEX][0];
     private final int cameraY = cameraPositions[CAMERA_INDEX][1];
     private final int cameraZ = cameraPositions[CAMERA_INDEX][2];
 
     public static boolean DETECT_BLUE = true;
-    public static int CAMERA_INDEX = 1;
+    public static int CAMERA_INDEX = 2;
 
     private Telemetry telemetry;
     private YoloV8TFLiteDetector detector;
@@ -90,6 +103,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
     private double brightness = 100.0;
 
     public Mat inputImage;
+    public Mat undistortedImage;
     public Mat warpedImage;
     public Mat segmentedImage;
 
@@ -104,21 +118,35 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
                 345.96589147568955, 0.0, 311.7387017952808,
                 0.0, 347.85001143507657, 173.23578163143304,
                 0.0, 0.0, 1.0);
-        } else {
+        } else if (CAMERA_INDEX == 1) {
             cameraMatrix.put(0, 0,
                 359.55191021655764, 0.0, 309.39643425768736,
                 0.0, 360.58638643325094, 147.52940818110352,
                 0.0, 0.0, 1.0);
+        } else if (CAMERA_INDEX == 2) {
+            cameraMatrix.put(0, 0,
+                402.86242050546144, 0.0, 468.1142969208219,
+                0.0, 403.82111825338706, 234.84132121529498,
+                0.0, 0.0, 1.0);
+        } else {
+            throw new IllegalArgumentException("Invalid CAMERA_INDEX for cameraMatrix");
         }
+
         distCoeffs = new Mat(1, 5, CvType.CV_32F);
         if (CAMERA_INDEX == 0) {
             distCoeffs.put(0, 0, -0.30485567438668043, 0.07975532745501325,
                 -0.0003135652017283016, -0.00207616958375859,
                 0.011229097994240867);
-        } else {
+        } else if (CAMERA_INDEX == 1) {
             distCoeffs.put(0, 0, -0.39463535904526964, 0.16261992242250406,
                 0.0023094897407939076, 0.0031745339975694565,
                 -0.03117995835887239);
+        } else if (CAMERA_INDEX == 2) {
+            distCoeffs.put(0, 0, -0.25411600704173154, 0.05889153103905143,
+                0.0018126205079637683, 0.0009762556594287467,
+                -0.005456605844593956);
+        } else {
+            throw new IllegalArgumentException("Invalid CAMERA_INDEX for distCoeffs");
         }
 
         // Define helper conversion functions via stored values
@@ -161,6 +189,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
         // Undistort the image
         Mat undistorted = new Mat();
         Calib3d.undistort(resized, undistorted, cameraMatrix, distCoeffs);
+        this.undistortedImage = undistorted.clone();
 
         // Perspective transform
         Mat M = Imgproc.getPerspectiveTransform(imagePoints, objectPoints);
