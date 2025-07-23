@@ -45,10 +45,10 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
         ),
         // Arducam
         new MatOfPoint2f(
-            new Point(214.0646, 38.12201),    // Top-left
-            new Point(437.94452, 36.919495),    // Top-right
-            new Point(615.6802, 267.4237),    // Bottom-right
-            new Point(12.225613, 241.0024)    // Bottom-left
+            new Point(230.16533, 25.5499),    // Top-left
+            new Point(422.00146, 23.701998),    // Top-right
+            new Point(535.8048, 149.02475),    // Bottom-right
+            new Point(117.315704, 152.40555)    // Bottom-left
         ),
     };
     private final MatOfPoint2f[] objectPointsArray = {
@@ -87,7 +87,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
 
     // Camera 3D position
     private final int[][] cameraPositions = {
-        {64, 225, 65}, {96, 236, 41}, {163, 391, -84}
+        {64, 225, 65}, {96, 236, 41}, {75, 218, 35}
     };
     private final int cameraX = cameraPositions[CAMERA_INDEX][0];
     private final int cameraY = cameraPositions[CAMERA_INDEX][1];
@@ -125,8 +125,8 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
                 0.0, 0.0, 1.0);
         } else if (CAMERA_INDEX == 2) {
             cameraMatrix.put(0, 0,
-                402.86242050546144, 0.0, 468.1142969208219,
-                0.0, 403.82111825338706, 234.84132121529498,
+                241.98215198, 0.0, 327.93473149,
+                0.0, 240.69460889, 169.29366162,
                 0.0, 0.0, 1.0);
         } else {
             throw new IllegalArgumentException("Invalid CAMERA_INDEX for cameraMatrix");
@@ -142,9 +142,9 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
                 0.0023094897407939076, 0.0031745339975694565,
                 -0.03117995835887239);
         } else if (CAMERA_INDEX == 2) {
-            distCoeffs.put(0, 0, -0.25411600704173154, 0.05889153103905143,
-                0.0018126205079637683, 0.0009762556594287467,
-                -0.005456605844593956);
+            distCoeffs.put(0, 0, -0.22025945, 0.04335242,
+                0.00074792, 0.00074543,
+                -0.00345017);
         } else {
             throw new IllegalArgumentException("Invalid CAMERA_INDEX for distCoeffs");
         }
