@@ -25,9 +25,9 @@ import java.util.concurrent.TimeUnit;
 public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
     // Image sizes
     private final Size imageSize = new Size(640, 360);
-    private final Size warpedImageSize = new Size(160, 240);
-    private final int modelImageWidth = 160;
-    private final int modelImageHeight = 256;
+    private final Size warpedImageSize = new Size(300, 450);
+    private final int modelImageWidth = 320;
+    private final int modelImageHeight = 480;
 
     // Perspective transformation source and destination points
     private final MatOfPoint2f[] imagePointsArray = {
@@ -65,10 +65,10 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
             new Point(26.67, 186.67)      // New bottom-left
         ),
         new MatOfPoint2f(
-            new Point(26.67, 80),       // New top-left
-            new Point(133.33, 80),     // New top-right
-            new Point(133.33, 186.67),   // New bottom-right
-            new Point(26.67, 186.67)      // New bottom-left
+            new Point(50, 150),       // New top-left
+            new Point(250, 150),     // New top-right
+            new Point(250, 350),   // New bottom-right
+            new Point(50, 350)      // New bottom-left
         )
     };
     private final MatOfPoint2f imagePoints = imagePointsArray[CAMERA_INDEX];
@@ -87,7 +87,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
 
     // Camera 3D position
     private final int[][] cameraPositions = {
-        {64, 225, 65}, {96, 236, 41}, {75, 218, 35}
+        {64, 225, 65}, {96, 236, 41}, {150, 437, 77}
     };
     private final int cameraX = cameraPositions[CAMERA_INDEX][0];
     private final int cameraY = cameraPositions[CAMERA_INDEX][1];
@@ -177,6 +177,29 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
         double newX = pt.x + (cameraX - pt.x) * ((double) sampleDepth / cameraZ);
         double newY = pt.y + (cameraY - pt.y) * ((double) sampleDepth / cameraZ);
         return new Point(newX, newY);
+    }
+
+    private void fixAngle(RotatedRect dr) {
+        // Change rectangle to always have height larger than width
+        if (dr.size.width > dr.size.height) {
+            dr.angle += 90;
+            double temp = dr.size.width;
+            dr.size.width = dr.size.height;
+            dr.size.height = temp;
+        }
+
+        // Fix too large angles
+        if (dr.angle > 90) {
+            dr.angle -= 180;
+        }
+
+        /*
+            Map to standard angle system
+            dr.angle = 90 - dr.angle;
+            if (dr.angle > 90) {
+                dr.angle -= 180;
+            }
+        */
     }
 
     @Override
@@ -279,8 +302,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
             h = h * modelImageHeight;
             angle = (float) -Math.toDegrees(angle);
 
-            // telemetry.addData("Raw", "%f %f %f %f %f %f %f %f",
-            //     cx, cy, w, h, angle, c1, c2, c3);
+            // telemetry.addData("Raw", "%f %f %f %f %f %f %f %f", cx, cy, w, h, angle, c1, c2, c3);
 
             if (w < 1 || h < 1) continue; // Skip zero size to avoid crash
 
@@ -291,6 +313,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
             Point center = new Point(cx, cy);
             Size rectSize = new Size(w, h);
             RotatedRect rRect = new RotatedRect(center, rectSize, angle);
+            fixAngle(rRect);
 
             // Obtain the four vertices of the rotated rectangle.
             Point[] vertices = new Point[4];
@@ -337,6 +360,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
                     pixelToMM(bottomCenter.x - cameraX),
                     pixelToMM(bottomCenter.y - cameraY));
             RotatedRect bottomRect = new RotatedRect(bottomCenterReal, rectSize, angle);
+            fixAngle(bottomRect);
             detections.add(bottomRect);
             telemetry.addData("Detected", "%d %d %d %d",
                     (int) bottomCenterReal.x, (int) bottomCenterReal.y,
@@ -423,7 +447,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
         // Constructor: load the model from the assets folder.
         public YoloV8TFLiteDetector(Context context) {
             try {
-                tflite = new Interpreter(loadModelFile(context, "yolov8_obb_v4.tflite"));
+                tflite = new Interpreter(loadModelFile(context, "yolov8_obb_v3.tflite"));
             } catch (IOException e) {
                 throw new RuntimeException("Failed to load TFLite model", e);
             }
@@ -441,7 +465,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
 
         // Runs inference on an input tensor.
         public float[][][] runInference(float[][][][] input) {
-            float[][][] output = new float[1][8][840];
+            float[][][] output = new float[1][8][3150];
             tflite.run(input, output);
             return output;
         }

@@ -190,8 +190,11 @@ public class TurretArm {
     }
 
     public void setServoAnglesDegrees(double[] anglesDeg, double movementTime) {
-        totalMovementTime = movementTime;
-        timeElapsed = 0;
+        if (movementTime != -1) {
+            totalMovementTime = movementTime;
+            timeElapsed = 0;
+        }
+
         if (anglesDeg == null || anglesDeg.length != servoArray.length) {
             telemetry.addData("Error", "setServoAnglesDegrees: Invalid angles array provided.");
             return;
@@ -228,8 +231,10 @@ public class TurretArm {
     }
 
     public void setSingleServoDegrees(double angleDeg, int servoIndex, double movementTime) {
-        totalMovementTime = movementTime;
-        timeElapsed = 0;
+        if (movementTime != -1) {
+            totalMovementTime = movementTime;
+            timeElapsed = 0;
+        }
 
         // Set startPosArray to current servo position array
         for (int i = 0; i < servoArray.length; i++) {
@@ -246,10 +251,10 @@ public class TurretArm {
         endPosArray[servoIndex] = Range.clip(newPos, 0, 1); // Update the global static position array
     }
 
-    public void openClaw() {
-        setSingleServoDegrees(0, 5, 0.5);
+    public void openClaw(double openTime) {
+        setSingleServoDegrees(0, 5, openTime);
     }
-    public void closeClaw() {
-        setSingleServoDegrees(90, 5, 0.5);
+    public void closeClaw(double closeTime) {
+        setSingleServoDegrees(90, 5, closeTime);
     }
 }

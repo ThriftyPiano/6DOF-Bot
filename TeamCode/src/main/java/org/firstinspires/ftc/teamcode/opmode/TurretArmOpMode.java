@@ -41,6 +41,7 @@ public class TurretArmOpMode extends LinearOpMode {
     public static int CAMERA_EXPOSURE = 30;
 
     public double[] xyzPos = new double[]{0, 40, 5};
+    public double wristAngle = 0;
 
     @Override
     public void runOpMode() {
@@ -129,27 +130,24 @@ public class TurretArmOpMode extends LinearOpMode {
 
             if (gamepad1.a & !detections.isEmpty()) {
                 RotatedRect detection = detections.get(0);
-                xyzPos[0] = detection.center.x / 10 - 3.5;
-                xyzPos[1] = -detection.center.y / 10 + 14.5;
+                xyzPos[0] = detection.center.x / 10;
+                xyzPos[1] = -detection.center.y / 10 + 6;
                 xyzPos[2] = 3.5;
+                wristAngle = detection.angle;
             }
             if (gamepad1.right_stick_button) {
                 turretArm.setServoPosXYZ(xyzPos, 2);
+                turretArm.setSingleServoDegrees(wristAngle, 4, -1);
+                turretArm.openClaw(-1);
             }
             if (gamepad1.b) {
                 turretArm.setServoAnglesDegrees(new double[]{0, 150, 120, -90, 0, 90}, 1);
             }
             if (gamepad1.x) {
-                turretArm.openClaw();
+                turretArm.openClaw(0.5);
             }
             if (gamepad1.y) {
-                turretArm.closeClaw();
-            }
-            if (gamepad1.left_bumper) {
-                turretArm.setSingleServoDegrees(-45, 4,0.5);
-            }
-            if (gamepad1.right_bumper) {
-                turretArm.setSingleServoDegrees(45, 4,0.5);
+                turretArm.closeClaw(0.5);
             }
             if (gamepad1.left_stick_button) {
                 turretArm.setServoAnglesDegrees(new double[]{0, 90, 0, -90, 0, 90}, 1);
@@ -159,6 +157,7 @@ public class TurretArmOpMode extends LinearOpMode {
 
             // Telemetry
             telemetry.addData("XYZ Coords", "X: %.2f, Y: %.2f, Z: %.2f", xyzPos[0], xyzPos[1], xyzPos[2]);
+            telemetry.addData("Wrist Angle", "%.2f", wristAngle);
             telemetry.update();
         }
     }
