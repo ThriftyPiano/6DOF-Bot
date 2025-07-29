@@ -447,7 +447,7 @@ public class PerspectiveSampleDetectionPipeline extends OpenCvPipeline {
         // Constructor: load the model from the assets folder.
         public YoloV8TFLiteDetector(Context context) {
             try {
-                tflite = new Interpreter(loadModelFile(context, "yolov8_obb_v3.tflite"));
+                tflite = new Interpreter(loadModelFile(context, "yolov8_obb_v5.tflite"));
             } catch (IOException e) {
                 throw new RuntimeException("Failed to load TFLite model", e);
             }
