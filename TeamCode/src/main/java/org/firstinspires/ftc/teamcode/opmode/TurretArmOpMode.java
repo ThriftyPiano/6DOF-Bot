@@ -130,10 +130,10 @@ public class TurretArmOpMode extends LinearOpMode {
 
             if (gamepad1.a & !detections.isEmpty()) {
                 RotatedRect detection = detections.get(0);
-                xyzPos[0] = detection.center.x / 10;
-                xyzPos[1] = -detection.center.y / 10 + 6;
+                xyzPos[0] = detection.center.x / 10 - 1;
+                xyzPos[1] = -detection.center.y / 10 + 6.5;
                 xyzPos[2] = 3.5;
-                wristAngle = detection.angle;
+                wristAngle = detection.angle + Math.toDegrees(Math.atan2(xyzPos[1], xyzPos[0])) - 90;
             }
             if (gamepad1.right_stick_button) {
                 turretArm.setServoPosXYZ(xyzPos, 2);
@@ -141,7 +141,7 @@ public class TurretArmOpMode extends LinearOpMode {
                 turretArm.openClaw(-1);
             }
             if (gamepad1.b) {
-                turretArm.setServoAnglesDegrees(new double[]{0, 150, 120, -90, 0, 90}, 1);
+                turretArm.setServoAnglesDegrees(new double[]{0, 150, 120, -90, 0, 90}, 2);
             }
             if (gamepad1.x) {
                 turretArm.openClaw(0.5);
@@ -150,7 +150,7 @@ public class TurretArmOpMode extends LinearOpMode {
                 turretArm.closeClaw(0.5);
             }
             if (gamepad1.left_stick_button) {
-                turretArm.setServoAnglesDegrees(new double[]{0, 90, 0, -90, 0, 90}, 1);
+                turretArm.setServoAnglesDegrees(new double[]{0, 90, 0, -90, 0, 90}, 2);
             }
 
             turretArm.run();
