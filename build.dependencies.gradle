@@ -2,6 +2,7 @@ repositories {
     mavenCentral()
     google() // Needed for androidx
     maven { url = 'https://maven.brott.dev/' }
+    maven { url = 'https://jitpack.io' } // For EasyOpenCV
 }
 
 dependencies {
@@ -16,4 +17,6 @@ dependencies {
     implementation 'org.tensorflow:tensorflow-lite:2.9.0'
     implementation 'androidx.appcompat:appcompat:1.2.0'
     implementation 'com.acmerobotics.dashboard:dashboard:0.4.15'
+    implementation 'org.openftc:easyopencv:3.0.3' // AprilTag support
+    implementation 'org.opencv:opencv-android:4.5.3' // OpenCV with ArUco
 }
