@@ -47,29 +47,10 @@ public class AprilTagDetectionPipeline {
     }
 
     /**
-     * Detect AprilTags in an image using OpenCV's built-in ArUco/AprilTag support.
-     * Returns a list of detected tag centers (pixel coordinates).
+     * AprilTag detection using ArUco is not supported in the standard OpenCV Android SDK.
+     * Use EasyOpenCV's AprilTagDetectionPipeline for AprilTag detection on FTC robots.
      */
-    public List<Point> detectAprilTags(Mat image) {
-        List<Point> tagCenters = new ArrayList<>();
-        Dictionary dictionary = Aruco.getPredefinedDictionary(Aruco.DICT_APRILTAG_36h11);
-        MatOfInt ids = new MatOfInt();
-        List<Mat> corners = new ArrayList<>();
-        Aruco.detectMarkers(image, dictionary, corners, ids);
-        for (int i = 0; i < corners.size(); i++) {
-            Mat cornerMat = corners.get(i);
-            double[] center = new double[2];
-            for (int j = 0; j < 4; j++) {
-                double[] pt = cornerMat.get(0, j);
-                center[0] += pt[0];
-                center[1] += pt[1];
-            }
-            center[0] /= 4.0;
-            center[1] /= 4.0;
-            tagCenters.add(new Point(center[0], center[1]));
-        }
-        return tagCenters;
-    }
+    // public List<Point> detectAprilTags(Mat image) { ... } // Removed unsupported code
 
     // Helper class for 2D points
     public static class Point2d {
