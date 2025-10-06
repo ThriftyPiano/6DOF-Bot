@@ -29,6 +29,9 @@
 
 package org.firstinspires.ftc.teamcode.opmode;
 
+import com.acmerobotics.dashboard.FtcDashboard;
+import com.acmerobotics.dashboard.config.Config;
+
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
@@ -63,9 +66,9 @@ import java.util.List;
  * Use Android Studio to Copy this Class, and Paste it into your team's code folder with a new name.
  * Remove or comment out the @Disabled line to add this OpMode to the Driver Station OpMode list.
  */
-@TeleOp(name = "Concept: AprilTag Localization", group = "Concept")
+@TeleOp(name = "April Tag Opmode", group = "Concept")
 
-public class AprilTagDetectionTest extends LinearOpMode {
+public class AprilTagOpmode extends LinearOpMode {
 
     private static final boolean USE_WEBCAM = true;  // true for webcam, false for phone camera
 
@@ -205,6 +208,8 @@ public class AprilTagDetectionTest extends LinearOpMode {
 
         // Build the Vision Portal, using the above settings.
         visionPortal = builder.build();
+
+//        FtcDashboard.getInstance().startCameraStream(visionPortal, 0);
 
         // Disable or re-enable the aprilTag processor at any time.
         //visionPortal.setProcessorEnabled(aprilTag, true);
