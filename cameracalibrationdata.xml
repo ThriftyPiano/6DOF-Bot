@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<Calibrations>
+    <!-- Arducam, calibrated with OpenCV chessboard: 1920x1080 -->
+    <Camera vid="0x0c45" pid="0x6366">
+        <Calibration
+        size="1920 1080"
+        focalLength="1023.878f, 1019.899f"
+        principalPoint="989.731f, 501.663f"
+        distortionCoefficients="-0.370767f, 0.106516f, 0.000118f, -0.000542f, -0.012277f, 0f, 0f, 0f"
+        />
+    </Camera>
+</Calibrations>

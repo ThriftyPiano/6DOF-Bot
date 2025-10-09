@@ -34,25 +34,24 @@ def calibrate_camera(chessboard_size=(9, 6), square_size=0.025, num_images=10, s
 
     # Start video capture
     cap = cv2.VideoCapture(0) # 0 for default camera
-    # Capture at camera's default/raw resolution, but resize frames to 640x360 for processing
 
     if not cap.isOpened():
         print("Error: Could not open video stream.")
         return
 
-    print(f"Capturing {num_images} images for calibration.")
-    print("Press 's' to save an image, 'q' to quit.")
+    print("Camera Calibration Mode")
+    print("Press 's' to save an image with detected corners.")
+    print("Press 'e' to end and calibrate (do not use 'q').")
 
     captured_count = 0
-    while captured_count < num_images:
+    while True:
         ret, frame = cap.read()
         if not ret:
             print("Failed to grab frame.")
             break
-
-        # Resize frame to 640x360 for processing and display
-        frame_resized = cv2.resize(frame, (640, 360))
-        gray = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2GRAY)
+        # Resize frame for processing and display
+        frame_resized = cv2.resize(frame, (1920, 1080), interpolation=cv2.INTER_AREA)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         # Find the chessboard corners
         # The `cv2.CALIB_CB_ADAPTIVE_THRESH` flag helps with varying lighting.
@@ -74,10 +73,10 @@ def calibrate_camera(chessboard_size=(9, 6), square_size=0.025, num_images=10, s
             cv2.putText(frame_resized, "No Chessboard Found. Adjust position.", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
-        cv2.putText(frame_resized, f"Captured: {captured_count}/{num_images}", (10, 70),
+        cv2.putText(frame_resized, f"Captured: {captured_count}", (10, 70),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2, cv2.LINE_AA)
 
-        cv2.imshow('Camera Calibration - Press \'s\' to Save, \'q\' to Quit', frame_resized)
+        cv2.imshow('Camera Calibration - Press \'s\' to Save, \'e\' to End', frame_resized)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord('s') and ret_corners:
@@ -88,19 +87,20 @@ def calibrate_camera(chessboard_size=(9, 6), square_size=0.025, num_images=10, s
             imgpoints.append(corners2)
             captured_count += 1
             print(f"Image saved: {img_name}")
-            print(f"Remaining images to capture: {num_images - captured_count}")
+            print(f"Total images captured: {captured_count}")
             # Give a small delay to avoid capturing the same frame multiple times
             cv2.waitKey(500)
-        elif key == ord('q'):
-            print("Calibration process aborted by user.")
+        elif key == ord('e'):
+            print("Calibration process ended by user.")
             break
 
     # Release the camera
     cap.release()
     cv2.destroyAllWindows()
 
-    if captured_count < num_images:
-        print("Not enough images captured for calibration. Please try again.")
+
+    if captured_count < 3:
+        print("Not enough images captured for calibration. Please try again (minimum 3 required).")
         return
 
     print("\nStarting camera calibration...")
