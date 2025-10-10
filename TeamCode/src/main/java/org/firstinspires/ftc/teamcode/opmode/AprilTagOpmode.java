@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode.opmode;
 
+import android.graphics.Canvas;
 import android.util.Size;
 
 import com.acmerobotics.dashboard.FtcDashboard;
@@ -14,23 +15,24 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Position;
 import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
+import org.firstinspires.ftc.robotcore.internal.camera.calibration.CameraCalibration;
 import org.firstinspires.ftc.vision.VisionPortal;
+import org.firstinspires.ftc.vision.VisionProcessor;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
+
+import org.firstinspires.ftc.vision.VisionProcessor;
+import org.opencv.core.*;
+import org.opencv.imgproc.Imgproc;
+import org.opencv.calib3d.Calib3d;
 
 import java.util.List;
 
 @TeleOp(name = "April Tag Opmode", group = "Concept")
 
 public class AprilTagOpmode extends LinearOpMode {
-    /**
-     * The variable to store our instance of the AprilTag processor.
-     */
+    private UndistortPipeline pipeline;
     private AprilTagProcessor aprilTag;
-
-    /**
-     * The variable to store our instance of the vision portal.
-     */
     private VisionPortal visionPortal;
 
     @Override
@@ -104,12 +106,15 @@ public class AprilTagOpmode extends LinearOpMode {
         // If set "false", monitor shows camera view without annotations.
         //builder.setAutoStopLiveView(false);
 
+        pipeline = new UndistortPipeline();
+
+        builder.addProcessor(pipeline);
+
         // Set and enable the processor.
         builder.addProcessor(aprilTag);
 
         // Build the Vision Portal, using the above settings.
         visionPortal = builder.build();
-
 //        FtcDashboard.getInstance().startCameraStream(visionPortal, 0);
 
         // Disable or re-enable the aprilTag processor at any time.
@@ -129,12 +134,18 @@ public class AprilTagOpmode extends LinearOpMode {
         for (AprilTagDetection detection : currentDetections) {
             telemetry.addLine(String.format("\n==== (ID %d)", detection.id));
             telemetry.addLine(String.format("Center %6.0f %6.0f   (pixels)", detection.center.x, detection.center.y));
+
+            double fx = pipeline.newCameraMatrix.get(0, 0)[0];
+            double fy = pipeline.newCameraMatrix.get(1, 1)[0];
+            double cx = pipeline.newCameraMatrix.get(0, 2)[0];
+            double cy = pipeline.newCameraMatrix.get(1, 2)[0];
+
             // Make this consistent with teamwebcamcalibrations.xml
             // Camera angle is from the horizontal, aimed upwards.
             double[] realWorldPosition = calculateTargetPosition3D(
                     detection.center.x, detection.center.y,
-                    1023.878, 1019.899,
-                    989.731, 501.663,
+                    fx, fy,
+                    cx, cy,
                     31.5, 0.6108,
                     75);
 
@@ -155,8 +166,8 @@ public class AprilTagOpmode extends LinearOpMode {
             double targetHeight
     ) {
         // Convert pixel to normalized camera coordinates
-        double x_cam = (u_p - c_x) / f_x;
-        double y_cam = -(v_p - c_y) / f_y;
+        double x_cam = (u_p - c_x) / f_x * 2;
+        double y_cam = -(v_p - c_y) / f_y * 2;
         double z_cam = 1.0;
 
         // Print all three in one telemetry statement
@@ -173,7 +184,7 @@ public class AprilTagOpmode extends LinearOpMode {
         telemetry.addData("Rotated vector", String.format("%6.2f %6.2f %6.2f", x_world_dir, y_world_dir, z_world_dir));
 
         // Find ray intersection with ground plane
-        if (Math.abs(y_world_dir) < -1e-9) {
+        if (Math.abs(y_world_dir) < 1e-9) {
             return new double[]{0.0, 0.0};
         }
         double t = (targetHeight - cameraHeight) / y_world_dir;
@@ -190,4 +201,68 @@ public class AprilTagOpmode extends LinearOpMode {
 
         return new double[]{x_world, z_world};
     }
+
+    public class UndistortPipeline implements VisionProcessor {
+        private Mat cameraMatrix;
+        private Mat distCoeffs;
+        public Mat newCameraMatrix;
+
+        public double[] cameraMatrixArray;
+
+        private org.opencv.core.Size imageSize = new org.opencv.core.Size(1920, 1080); // adjust to your camera stream resolution
+
+        private boolean initialized = false;
+
+        @Override
+        public void init(int width, int height, CameraCalibration calibration) {
+            // Initialize distortion parameters (you need to calibrate beforehand)
+            cameraMatrix = new Mat(3, 3, CvType.CV_64F);
+            distCoeffs = new Mat(1, 5, CvType.CV_64F);
+
+            // Example values — replace with your own calibrated ones
+            cameraMatrix.put(0, 0, 1023.878f); // fx
+            cameraMatrix.put(0, 1, 0);
+            cameraMatrix.put(0, 2, 989.731f);
+            cameraMatrix.put(1, 0, 0);
+            cameraMatrix.put(1, 1, 1019.899f); // fy
+            cameraMatrix.put(1, 2, 501.663f);
+            cameraMatrix.put(2, 0, 0);
+            cameraMatrix.put(2, 1, 0);
+            cameraMatrix.put(2, 2, 1);
+
+            // Example distortion coefficients: k1, k2, p1, p2, k3
+            distCoeffs.put(0, 0, -0.370767f, 0.106516f, 0.000118f, -0.000542f, -0.012277f);
+
+            newCameraMatrix = Calib3d.getOptimalNewCameraMatrix(
+                    cameraMatrix, distCoeffs, imageSize, 1, imageSize, null);
+
+            // void newCameraMatrix
+            newCameraMatrix = cameraMatrix;
+
+            initialized = true;
+        }
+
+        @Override
+        public Object processFrame(Mat input, long captureTimeNanos) {
+            if (!initialized) return null;
+
+            Mat undistorted = new Mat();
+            Calib3d.undistort(input, undistorted, cameraMatrix, distCoeffs, newCameraMatrix);
+
+            // (Optional) Do further image processing here
+            // e.g. detect apriltags, contours, colors, etc.
+
+            // Replace the input with undistorted image for display in the RC preview
+            undistorted.copyTo(input);
+            undistorted.release();
+            return null;
+        }
+
+        @Override
+        public void onDrawFrame(Canvas canvas, int onscreenWidth, int onscreenHeight,
+                                float scaleBmpPxToCanvasPx, float scaleCanvasDensity, Object userContext) {
+            // You can draw overlays here if you want (optional)
+        }
+    }
+
 }   // end class
