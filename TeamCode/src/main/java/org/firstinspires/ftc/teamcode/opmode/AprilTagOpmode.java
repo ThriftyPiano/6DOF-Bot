@@ -127,11 +127,20 @@ public class AprilTagOpmode extends LinearOpMode {
      */
     private void telemetryAprilTag() {
 
+        if (pipeline == null || !pipeline.initialized) {
+            return;
+        }
+
         List<AprilTagDetection> currentDetections = aprilTag.getDetections();
         telemetry.addData("# AprilTags Detected", currentDetections.size());
 
         // Step through the list of detections and display info for each one.
         for (AprilTagDetection detection : currentDetections) {
+
+            double[] undistortedPixels = undistortPixel(detection.center.x, detection.center.y);
+            double u_undistorted = undistortedPixels[0];
+            double v_undistorted = undistortedPixels[1];
+
             telemetry.addLine(String.format("\n==== (ID %d)", detection.id));
             telemetry.addLine(String.format("Center %6.0f %6.0f   (pixels)", detection.center.x, detection.center.y));
 
@@ -141,10 +150,11 @@ public class AprilTagOpmode extends LinearOpMode {
             double cy = pipeline.newCameraMatrix.get(1, 2)[0];
 
             // Make this consistent with teamwebcamcalibrations.xml
-            // Camera angle is from the horizontal, aimed upwards.
+            // Camera angle is from the horizontal, aimed upwards. Hard-coded focal length
+            // Focal lengths from calibration: 786.357, 785.863; changed to work a bit better
             double[] realWorldPosition = calculateTargetPosition3D(
-                    detection.center.x, detection.center.y,
-                    fx, fy,
+                    u_undistorted, v_undistorted,
+                    786.357, 765,
                     cx, cy,
                     31.5, 0.6108,
                     75);
@@ -166,8 +176,8 @@ public class AprilTagOpmode extends LinearOpMode {
             double targetHeight
     ) {
         // Convert pixel to normalized camera coordinates
-        double x_cam = (u_p - c_x) / f_x * 2;
-        double y_cam = -(v_p - c_y) / f_y * 2;
+        double x_cam = (u_p - c_x) / f_x;
+        double y_cam = -(v_p - c_y) / f_y;
         double z_cam = 1.0;
 
         // Print all three in one telemetry statement
@@ -203,8 +213,8 @@ public class AprilTagOpmode extends LinearOpMode {
     }
 
     public class UndistortPipeline implements VisionProcessor {
-        private Mat cameraMatrix;
-        private Mat distCoeffs;
+        public Mat cameraMatrix;
+        public Mat distCoeffs;
         public Mat newCameraMatrix;
 
         public double[] cameraMatrixArray;
@@ -263,6 +273,60 @@ public class AprilTagOpmode extends LinearOpMode {
                                 float scaleBmpPxToCanvasPx, float scaleCanvasDensity, Object userContext) {
             // You can draw overlays here if you want (optional)
         }
+    }
+    /**
+     * Undistorts a single pixel coordinate using the camera's calibration parameters.
+     * @param u_distorted The x-coordinate of the distorted pixel.
+     * @param v_distorted The y-coordinate of the distorted pixel.
+     * @return A double array containing the [x, y] coordinates of the undistorted pixel.
+     */
+    private double[] undistortPixel(double u_distorted, double v_distorted) {
+        // Get camera calibration parameters from the pipeline
+        double fx = pipeline.cameraMatrix.get(0, 0)[0];
+        double fy = pipeline.cameraMatrix.get(1, 1)[0];
+        double cx = pipeline.cameraMatrix.get(0, 2)[0];
+        double cy = pipeline.cameraMatrix.get(1, 2)[0];
+
+        // Get distortion coefficients
+        double k1 = pipeline.distCoeffs.get(0, 0)[0];
+        double k2 = pipeline.distCoeffs.get(0, 1)[0];
+        double p1 = pipeline.distCoeffs.get(0, 2)[0];
+        double p2 = pipeline.distCoeffs.get(0, 3)[0];
+        double k3 = pipeline.distCoeffs.get(0, 4)[0];
+
+        // Normalize distorted pixel coordinates
+        double x_distorted = (u_distorted - cx) / fx;
+        double y_distorted = (v_distorted - cy) / fy;
+
+        // Iteratively solve for undistorted coordinates using Newton-Raphson method
+        double x_undistorted = x_distorted;
+        double y_undistorted = y_distorted;
+
+        for (int i = 0; i < 5; i++) {
+            double r_sq = x_undistorted * x_undistorted + y_undistorted * y_undistorted;
+            double r_fourth = r_sq * r_sq;
+
+            // Radial distortion factor
+            double radial = 1.0 + k1 * r_sq + k2 * r_fourth + k3 * r_sq * r_fourth;
+
+            // Tangential distortion factors
+            double tangential_x = 2.0 * p1 * x_undistorted * y_undistorted + p2 * (r_sq + 2.0 * x_undistorted * x_undistorted);
+            double tangential_y = p1 * (r_sq + 2.0 * y_undistorted * y_undistorted) + 2.0 * p2 * x_undistorted * y_undistorted;
+
+            // Distorted coordinates based on current estimate
+            double x_dist_est = x_undistorted * radial + tangential_x;
+            double y_dist_est = y_undistorted * radial + tangential_y;
+
+            // Update estimate
+            x_undistorted = x_distorted - (x_dist_est - x_undistorted);
+            y_undistorted = y_distorted - (y_dist_est - y_undistorted);
+        }
+
+        // Convert back to pixel coordinates using the new camera matrix
+        double u_undistorted = x_undistorted * pipeline.newCameraMatrix.get(0, 0)[0] + pipeline.newCameraMatrix.get(0, 2)[0];
+        double v_undistorted = y_undistorted * pipeline.newCameraMatrix.get(1, 1)[0] + pipeline.newCameraMatrix.get(1, 2)[0];
+
+        return new double[]{u_undistorted, v_undistorted};
     }
 
 }   // end class

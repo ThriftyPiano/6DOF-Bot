@@ -43,6 +43,11 @@ def calibrate_camera(chessboard_size=(9, 6), square_size=0.025, num_images=10, s
     print("Press 's' to save an image with detected corners.")
     print("Press 'e' to end and calibrate (do not use 'q').")
 
+    cameraMatrix = np.array([[1023.878, 0, 989.731],
+                             [0, 1019.899, 501.663],
+                             [0, 0, 1]], dtype=np.float32)
+    distCoeffs = np.array([-0.370767, 0.106516, 0.000118, -0.000542, -0.012277], dtype=np.float32)
+
     captured_count = 0
     while True:
         ret, frame = cap.read()
@@ -51,7 +56,8 @@ def calibrate_camera(chessboard_size=(9, 6), square_size=0.025, num_images=10, s
             break
         # Resize frame for processing and display
         frame_resized = cv2.resize(frame, (1920, 1080), interpolation=cv2.INTER_AREA)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frame_resized = cv2.undistort(frame_resized, cameraMatrix, distCoeffs)
+        gray = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2GRAY)
 
         # Find the chessboard corners
         # The `cv2.CALIB_CB_ADAPTIVE_THRESH` flag helps with varying lighting.
