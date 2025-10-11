@@ -154,7 +154,7 @@ public class AprilTagOpmode extends LinearOpMode {
             // Focal lengths from calibration: 786.357, 785.863; changed to work a bit better
             double[] realWorldPosition = calculateTargetPosition3D(
                     u_undistorted, v_undistorted,
-                    786.357, 765,
+                    786.357, 785.863,
                     cx, cy,
                     31.5, 0.6108,
                     75);
