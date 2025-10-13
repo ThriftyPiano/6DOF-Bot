@@ -8,6 +8,7 @@ import com.acmerobotics.dashboard.config.Config;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.Servo;
 
 import org.firstinspires.ftc.robotcore.external.hardware.camera.BuiltinCameraDirection;
 import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
@@ -35,8 +36,15 @@ public class AprilTagOpmode extends LinearOpMode {
     private AprilTagProcessor aprilTag;
     private VisionPortal visionPortal;
 
+    private Servo turretServo = null;
+    private double turretAngle = 0.5;
+    private double lastRelativeAngle = 0;
+
     @Override
     public void runOpMode() {
+
+        turretServo = hardwareMap.get(Servo.class, "turretServo");
+        turretServo.setPosition(turretAngle);
 
         initAprilTag();
 
@@ -47,7 +55,6 @@ public class AprilTagOpmode extends LinearOpMode {
         waitForStart();
 
         while (opModeIsActive()) {
-
             telemetryAprilTag();
 
             // Push telemetry to the Driver Station.
@@ -126,11 +133,6 @@ public class AprilTagOpmode extends LinearOpMode {
      * Add telemetry about AprilTag detections.
      */
     private void telemetryAprilTag() {
-
-        if (pipeline == null || !pipeline.initialized) {
-            return;
-        }
-
         List<AprilTagDetection> currentDetections = aprilTag.getDetections();
         telemetry.addData("# AprilTags Detected", currentDetections.size());
 
@@ -156,11 +158,21 @@ public class AprilTagOpmode extends LinearOpMode {
                     u_undistorted, v_undistorted,
                     786.357, 785.863,
                     cx, cy,
-                    31.5, 0.6108,
+                    34.2, 0,
                     75);
 
-            double relativeAngle = Math.atan2(realWorldPosition[1], realWorldPosition[0]);
-            telemetry.addData("Relative Angle", String.format("%6.2f", Math.toDegrees(relativeAngle)));
+            double relativeAngle = Math.toDegrees(Math.atan2(realWorldPosition[1], realWorldPosition[0]));
+            if (Math.abs(lastRelativeAngle - relativeAngle) > 2) {
+                turretAngle = turretAngle - (relativeAngle - 90) / 300;
+
+                // Set servo to turn to April tag; estimate 300 degrees of DOF
+                turretServo.setPosition(turretAngle);
+            }
+            lastRelativeAngle = relativeAngle;
+
+            telemetry.addData("Turret Angle", String.format("%6.2f", turretAngle));
+
+            telemetry.addData("Relative Angle", String.format("%6.2f", relativeAngle));
 
             telemetry.addLine(String.format("Real World Position %6.2f %6.2f", realWorldPosition[0], realWorldPosition[1]));
         }   // end for() loop
@@ -221,40 +233,39 @@ public class AprilTagOpmode extends LinearOpMode {
 
         private org.opencv.core.Size imageSize = new org.opencv.core.Size(1920, 1080); // adjust to your camera stream resolution
 
-        private boolean initialized = false;
-
         @Override
         public void init(int width, int height, CameraCalibration calibration) {
-            // Initialize distortion parameters (you need to calibrate beforehand)
-            cameraMatrix = new Mat(3, 3, CvType.CV_64F);
-            distCoeffs = new Mat(1, 5, CvType.CV_64F);
 
-            // Example values — replace with your own calibrated ones
-            cameraMatrix.put(0, 0, 1023.878f); // fx
-            cameraMatrix.put(0, 1, 0);
-            cameraMatrix.put(0, 2, 989.731f);
-            cameraMatrix.put(1, 0, 0);
-            cameraMatrix.put(1, 1, 1019.899f); // fy
-            cameraMatrix.put(1, 2, 501.663f);
-            cameraMatrix.put(2, 0, 0);
-            cameraMatrix.put(2, 1, 0);
-            cameraMatrix.put(2, 2, 1);
-
-            // Example distortion coefficients: k1, k2, p1, p2, k3
-            distCoeffs.put(0, 0, -0.370767f, 0.106516f, 0.000118f, -0.000542f, -0.012277f);
-
-            newCameraMatrix = Calib3d.getOptimalNewCameraMatrix(
-                    cameraMatrix, distCoeffs, imageSize, 1, imageSize, null);
-
-            // void newCameraMatrix
-            newCameraMatrix = cameraMatrix;
-
-            initialized = true;
         }
 
         @Override
         public Object processFrame(Mat input, long captureTimeNanos) {
-            if (!initialized) return null;
+            // Do lazy initialization
+            if (cameraMatrix == null) {
+                // Initialize distortion parameters (you need to calibrate beforehand)
+                cameraMatrix = new Mat(3, 3, CvType.CV_64F);
+                distCoeffs = new Mat(1, 5, CvType.CV_64F);
+
+                // Example values — replace with your own calibrated ones
+                cameraMatrix.put(0, 0, 1023.878f); // fx
+                cameraMatrix.put(0, 1, 0);
+                cameraMatrix.put(0, 2, 989.731f);
+                cameraMatrix.put(1, 0, 0);
+                cameraMatrix.put(1, 1, 1019.899f); // fy
+                cameraMatrix.put(1, 2, 501.663f);
+                cameraMatrix.put(2, 0, 0);
+                cameraMatrix.put(2, 1, 0);
+                cameraMatrix.put(2, 2, 1);
+
+                // Example distortion coefficients: k1, k2, p1, p2, k3
+                distCoeffs.put(0, 0, -0.370767f, 0.106516f, 0.000118f, -0.000542f, -0.012277f);
+
+                //newCameraMatrix = Calib3d.getOptimalNewCameraMatrix(
+                //        cameraMatrix, distCoeffs, imageSize, 1, imageSize, null);
+
+                // void newCameraMatrix
+                newCameraMatrix = cameraMatrix;
+            }
 
             Mat undistorted = new Mat();
             Calib3d.undistort(input, undistorted, cameraMatrix, distCoeffs, newCameraMatrix);
