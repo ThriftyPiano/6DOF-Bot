@@ -100,13 +100,14 @@ public class AprilTagOpmode extends LinearOpMode {
         builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
 
         // Choose a camera resolution. Not all cameras support all resolutions.
-        builder.setCameraResolution(new Size(1920, 1080));
+        builder.setCameraResolution(new Size(1280, 720));
 
         // Enable the RC preview (LiveView).  Set "false" to omit camera monitoring.
         //builder.enableLiveView(true);
 
         // Set the stream format; MJPEG uses less bandwidth than default YUY2.
-        builder.setStreamFormat(VisionPortal.StreamFormat.YUY2);
+        // Framerate increase is likely a bluff
+        // builder.setStreamFormat(VisionPortal.StreamFormat.YUY2);
 
         // Choose whether or not LiveView stops if no processors are enabled.
         // If set "true", monitor shows solid orange screen if no processors enabled.
@@ -153,22 +154,34 @@ public class AprilTagOpmode extends LinearOpMode {
 
             // Make this consistent with teamwebcamcalibrations.xml
             // Camera angle is from the horizontal, aimed upwards. Hard-coded focal length
-            // Focal lengths from calibration: 786.357, 785.863; changed to work a bit better
+            // Hard code focal lengths from calibration: 786.357, 785.863; changed to work a bit better
+            double f_x = 786.357 * 2 / 3;
+            double f_y = 785.863 * 2 / 3;
+
             double[] realWorldPosition = calculateTargetPosition3D(
                     u_undistorted, v_undistorted,
-                    786.357, 785.863,
+                    f_x, f_y,
                     cx, cy,
                     34.2, 0,
                     75);
 
             double relativeAngle = Math.toDegrees(Math.atan2(realWorldPosition[1], realWorldPosition[0]));
-            if (Math.abs(lastRelativeAngle - relativeAngle) > 2) {
-                turretAngle = turretAngle - (relativeAngle - 90) / 300;
 
-                // Set servo to turn to April tag; estimate 300 degrees of DOF
-                turretServo.setPosition(turretAngle);
+            // Calculate angle using focal length
+            double focalAngle = 90 - Math.toDegrees(Math.atan2((detection.center.x - cx), f_x));
+
+            // Add telemetry for focalAngle
+            telemetry.addData("Focal Angle", String.format("%6.2f", focalAngle));
+
+            if (detection.id == 20) {
+                if (Math.abs(lastRelativeAngle - relativeAngle) > 2) {
+                    turretAngle = turretAngle - (relativeAngle - 90) / 300;
+
+                    // Set servo to turn to April tag; estimate 300 degrees of DOF
+                    turretServo.setPosition(turretAngle);
+                }
+                lastRelativeAngle = relativeAngle;
             }
-            lastRelativeAngle = relativeAngle;
 
             telemetry.addData("Turret Angle", String.format("%6.2f", turretAngle));
 
@@ -231,7 +244,7 @@ public class AprilTagOpmode extends LinearOpMode {
 
         public double[] cameraMatrixArray;
 
-        private org.opencv.core.Size imageSize = new org.opencv.core.Size(1920, 1080); // adjust to your camera stream resolution
+        private org.opencv.core.Size imageSize = new org.opencv.core.Size(1280, 720); // adjust to your camera stream resolution
 
         @Override
         public void init(int width, int height, CameraCalibration calibration) {
@@ -246,13 +259,13 @@ public class AprilTagOpmode extends LinearOpMode {
                 cameraMatrix = new Mat(3, 3, CvType.CV_64F);
                 distCoeffs = new Mat(1, 5, CvType.CV_64F);
 
-                // Example values — replace with your own calibrated ones
+                // Example values — replace with your own calibrated ones; these are for 1920x1080 (scaled to 1280x720)
                 cameraMatrix.put(0, 0, 1023.878f); // fx
                 cameraMatrix.put(0, 1, 0);
-                cameraMatrix.put(0, 2, 989.731f);
+                cameraMatrix.put(0, 2, 989.731f * 2 / 3);
                 cameraMatrix.put(1, 0, 0);
                 cameraMatrix.put(1, 1, 1019.899f); // fy
-                cameraMatrix.put(1, 2, 501.663f);
+                cameraMatrix.put(1, 2, 501.663f * 2 / 3);
                 cameraMatrix.put(2, 0, 0);
                 cameraMatrix.put(2, 1, 0);
                 cameraMatrix.put(2, 2, 1);
