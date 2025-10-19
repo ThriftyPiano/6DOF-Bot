@@ -39,14 +39,18 @@ def calibrate_camera(chessboard_size=(9, 6), square_size=0.025, num_images=10, s
         print("Error: Could not open video stream.")
         return
 
+    # Set capture resolution instead of resizing later
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
     print("Camera Calibration Mode")
     print("Press 's' to save an image with detected corners.")
     print("Press 'e' to end and calibrate (do not use 'q').")
 
-    cameraMatrix = np.array([[1023.878, 0, 989.731],
-                             [0, 1019.899, 501.663],
+    cameraMatrix = np.array([[851.1366412, 0, 759.71772254],
+                             [0, 866.62577366, 516.37335944],
                              [0, 0, 1]], dtype=np.float32)
-    distCoeffs = np.array([-0.370767, 0.106516, 0.000118, -0.000542, -0.012277], dtype=np.float32)
+    distCoeffs = np.array([-0.30494122, 0.10215236, 0.00597334, 0.01665244, -0.01335692], dtype=np.float32)
 
     captured_count = 0
     while True:
@@ -54,10 +58,9 @@ def calibrate_camera(chessboard_size=(9, 6), square_size=0.025, num_images=10, s
         if not ret:
             print("Failed to grab frame.")
             break
-        # Resize frame for processing and display
-        frame_resized = cv2.resize(frame, (1920, 1080), interpolation=cv2.INTER_AREA)
-        frame_resized = cv2.undistort(frame_resized, cameraMatrix, distCoeffs)
-        gray = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2GRAY)
+        # Frame is now captured at the desired resolution
+        frame = cv2.undistort(frame, cameraMatrix, distCoeffs)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         # Find the chessboard corners
         # The `cv2.CALIB_CB_ADAPTIVE_THRESH` flag helps with varying lighting.
@@ -72,23 +75,23 @@ def calibrate_camera(chessboard_size=(9, 6), square_size=0.025, num_images=10, s
             corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
 
             # Draw and display the corners
-            cv2.drawChessboardCorners(frame_resized, chessboard_size, corners2, ret_corners)
-            cv2.putText(frame_resized, f"Corners Found! Press 's' to save.", (10, 30),
+            cv2.drawChessboardCorners(frame, chessboard_size, corners2, ret_corners)
+            cv2.putText(frame, f"Corners Found! Press 's' to save.", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         else:
-            cv2.putText(frame_resized, "No Chessboard Found. Adjust position.", (10, 30),
+            cv2.putText(frame, "No Chessboard Found. Adjust position.", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
-        cv2.putText(frame_resized, f"Captured: {captured_count}", (10, 70),
+        cv2.putText(frame, f"Captured: {captured_count}", (10, 70),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2, cv2.LINE_AA)
 
-        cv2.imshow('Camera Calibration - Press \'s\' to Save, \'e\' to End', frame_resized)
+        cv2.imshow('Camera Calibration - Press \'s\' to Save, \'e\' to End', frame)
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord('s') and ret_corners:
-            # Save the resized image and add points if corners are found
+            # Save the image and add points if corners are found
             img_name = os.path.join(save_path, f"calibration_image_{captured_count:02d}.png")
-            cv2.imwrite(img_name, frame_resized)
+            cv2.imwrite(img_name, frame)
             objpoints.append(objp)
             imgpoints.append(corners2)
             captured_count += 1

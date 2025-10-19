@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Calibration, Undistortion and AprilTag Detection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .controls {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .control-group {
+            display: inline-block;
+            margin-right: 20px;
+            margin-bottom: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .video-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .video-section {
+            flex: 1;
+            min-width: 300px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .video-section h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        video, canvas {
+            width: 100%;
+            max-width: 640px;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .calibration-info {
+            background: white;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .calibration-info h4 {
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        input[type="number"], input[type="text"], textarea {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        input[type="number"]:focus, input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Camera Calibration, Undistortion and AprilTag Detection</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="resolutionSelect">Resolution:</label>
+                <select id="resolutionSelect">
+                    <option value="320x240">320x240</option>
+                    <option value="640x360">640x360</option>
+                    <option value="640x480">640x480</option>
+                    <option value="800x600">800x600</option>
+                    <option value="960x540">960x540</option>
+                    <option value="1280x720">1280x720 (HD)</option>
+                    <option value="1920x1080" selected>1920x1080 (Full HD)</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <button id="startButton" disabled>Start Camera</button>
+                <button id="stopButton" disabled>Stop Camera</button>
+            </div>
+            
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="enableAprilTags"> Enable AprilTag Detection
+                </label>
+            </div>
+        </div>
+
+        <div class="calibration-info">
+            <h4>Camera Calibration Data (JSON)</h4>
+            <textarea id="calibrationJson" rows="10" style="width: 100%; font-family: monospace; font-size: 14px; border: 1px solid #ddd; border-radius: 4px; padding: 10px;">{
+    "camera_matrix": [
+        [1023.878, 0, 989.731],
+        [0, 1019.899, 501.663],
+        [0, 0, 1]
+    ],
+    "distortion_coefficients": [
+        -0.370767, 0.106516, 0.000118, -0.000542, -0.012277, 0, 0, 0
+    ],
+    "camera": "arducam 1920x1080"
+}</textarea>
+<!--
+{
+    "camera_matrix": [
+        [340.59634377, 0, 309.73408269],
+        [0, 339.35206724, 249.16842305],
+        [0, 0, 1]
+    ],
+    "distortion_coefficients": [
+        -0.307037668, 0.100561860, 0.000549467, 0.000052751, -0.014944954, 0, 0, 0
+    ],
+    "camera": "arducam 640x480"
+}
+{
+    "camera_matrix": [
+        [851.1366412, 0, 759.71772254],
+        [0, 866.62577366, 516.37335944],
+        [0, 0, 1]
+    ],
+    "distortion_coefficients": [
+        -0.30494122, 0.10215236, 0.00597334, 0.01665244, -0.01335692, 0, 0, 0
+    ],
+    "camera": "arducam 1280x720"
+}
+{
+    "camera_matrix": [
+        [785.1077999, 0, 902.92369114],
+        [0, 780.69612524, 563.09438665],
+        [0, 0, 1]
+    ],
+    "distortion_coefficients": [
+        -0.09301348, 0.05094156, 0.00931612, 0.0274553, -0.0101709, 0, 0, 0
+    ],
+    "camera": "arducam 1280x720 undistorted"
+}
+-->
+            <div class="control-group" style="margin-top: 15px;">
+                <button id="updateCalibrationButton">Update Calibration</button>
+                <button id="resetCalibrationButton">Reset to Default</button>
+            </div>
+            <div id="calibrationError" class="status error" style="display: none; margin-top: 10px;"></div>
+        </div>
+
+        <div class="video-container">
+            <div class="video-section">
+                <h3>Raw Video with AprilTags</h3>
+                <div style="position: relative;">
+                    <video id="rawVideo" autoplay muted playsinline style="position: absolute; top: 0; left: 0;"></video>
+                    <canvas id="rawCanvas" style="position: absolute; top: 0; left: 0;"></canvas>
+                </div>
+                <div id="rawStatus" class="status info">Camera not started</div>
+            </div>
+            
+            <div class="video-section">
+                <h3>Undistorted Video with AprilTags</h3>
+                <canvas id="undistortedCanvas"></canvas>
+                <div id="undistortedStatus" class="status info">Undistortion not active</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://docs.opencv.org/4.8.0/opencv.js" async></script>
+    <script src="apriltag.js"></script>
+    <script>
+        // Global variable to track OpenCV loading status
+        let cvReady = false;
+        
+        // OpenCV.js callback when loaded
+        function onOpenCvReady() {
+            cvReady = true;
+            console.log('OpenCV.js callback fired - ready to use');
+        }
+        
+        // Set the callback for OpenCV.js
+        var Module = {
+            onRuntimeInitialized: onOpenCvReady
+        };
+
+        class CameraCalibration {
+            constructor() {
+                this.stream = null;
+                this.cameraMatrix = null;
+                this.distCoeffs = null;
+                this.undistortionMaps = null;
+                this.animationId = null;
+                this.rawAnimationId = null;
+                this.isProcessing = false;
+                this.aprilTagDetector = null;
+                
+                this.rawVideo = document.getElementById('rawVideo');
+                this.rawCanvas = document.getElementById('rawCanvas');
+                this.rawCtx = this.rawCanvas.getContext('2d');
+                this.undistortedCanvas = document.getElementById('undistortedCanvas');
+                this.undistortedCtx = this.undistortedCanvas.getContext('2d');
+                
+                this.resolutionSelect = document.getElementById('resolutionSelect');
+                this.startButton = document.getElementById('startButton');
+                this.stopButton = document.getElementById('stopButton');
+                this.enableAprilTags = document.getElementById('enableAprilTags');
+                
+                this.rawStatus = document.getElementById('rawStatus');
+                this.undistortedStatus = document.getElementById('undistortedStatus');
+                
+                // Calibration input elements
+                this.calibrationJson = document.getElementById('calibrationJson');
+                this.updateCalibrationButton = document.getElementById('updateCalibrationButton');
+                this.resetCalibrationButton = document.getElementById('resetCalibrationButton');
+                this.calibrationError = document.getElementById('calibrationError');
+                
+                this.init();
+            }
+
+            async init() {
+                try {
+                    this.updateStatus(this.rawStatus, 'Loading OpenCV.js...', 'info');
+                    await this.waitForOpenCV();
+                    this.updateStatus(this.rawStatus, 'OpenCV.js loaded successfully', 'success');
+                    
+                    this.initializeAprilTagDetector();
+                    this.loadCalibrationData();
+                    this.setupEventListeners();
+                    
+                    // Enable start button after successful initialization
+                    this.startButton.disabled = false;
+                } catch (error) {
+                    console.error('Initialization error:', error);
+                    this.updateStatus(this.rawStatus, `Initialization failed: ${error.message}`, 'error');
+                    // Keep start button disabled on error
+                }
+            }
+
+            initializeAprilTagDetector() {
+                try {
+                    // Check if apriltagjs library is available
+                    if (typeof detect !== 'undefined') {
+                        this.aprilTagDetector = detect; // The detect function from apriltagjs
+                        console.log('AprilTag detector initialized with apriltagjs library');
+                    } else {
+                        console.warn('AprilTagJS library not available');
+                        console.log('Available globals:', Object.keys(window).filter(key => key.toLowerCase().includes('april') || key.includes('detect')));
+                        // Disable AprilTag detection
+                        this.enableAprilTags.checked = false;
+                        this.enableAprilTags.disabled = true;
+                    }
+                } catch (error) {
+                    console.error('Error initializing AprilTag detector:', error);
+                    this.enableAprilTags.checked = false;
+                    this.enableAprilTags.disabled = true;
+                }
+            }
+
+            waitForOpenCV() {
+                return new Promise((resolve) => {
+                    const checkOpenCV = () => {
+                        if (typeof cv !== 'undefined' && cv.Mat && cvReady) {
+                            console.log('OpenCV.js is fully ready');
+                            resolve();
+                        } else {
+                            console.log('Still waiting for OpenCV.js...');
+                            setTimeout(checkOpenCV, 100);
+                        }
+                    };
+                    checkOpenCV();
+                });
+            }
+
+            async enumerateCameras() {
+                // This method is no longer needed since we'll use system dialog
+                // Keeping for potential future use
+                return;
+            }
+
+            loadCalibrationData() {
+                try {
+                    // Verify OpenCV is available
+                    if (typeof cv === 'undefined' || !cv.Mat) {
+                        throw new Error('OpenCV.js not properly loaded');
+                    }
+
+                    this.updateCalibrationMatrices();
+                    console.log('Calibration data loaded successfully');
+                } catch (error) {
+                    console.error('Error loading calibration data:', error);
+                    this.updateStatus(this.rawStatus, `Error loading calibration data: ${error.message}`, 'error');
+                }
+            }
+
+            updateCalibrationMatrices() {
+                try {
+                    // Parse JSON from textarea
+                    const calibrationData = JSON.parse(this.calibrationJson.value);
+                    
+                    // Validate structure
+                    if (!calibrationData.camera_matrix || !calibrationData.distortion_coefficients) {
+                        throw new Error('JSON must contain "camera_matrix" and "distortion_coefficients" fields');
+                    }
+                    
+                    if (!Array.isArray(calibrationData.camera_matrix) || calibrationData.camera_matrix.length !== 3) {
+                        throw new Error('camera_matrix must be a 3x3 array');
+                    }
+                    
+                    if (!Array.isArray(calibrationData.distortion_coefficients)) {
+                        throw new Error('distortion_coefficients must be an array');
+                    }
+
+                    // Clean up existing matrices
+                    if (this.cameraMatrix) this.cameraMatrix.delete();
+                    if (this.distCoeffs) this.distCoeffs.delete();
+
+                    // Flatten camera matrix
+                    const cameraMatrixFlat = calibrationData.camera_matrix.flat();
+                    if (cameraMatrixFlat.length !== 9) {
+                        throw new Error('camera_matrix must be 3x3 (9 elements total)');
+                    }
+
+                    // Create camera matrix
+                    this.cameraMatrix = cv.matFromArray(3, 3, cv.CV_32FC1, cameraMatrixFlat);
+
+                    // Pad distortion coefficients to 8 elements if needed
+                    const distCoeffs = [...calibrationData.distortion_coefficients];
+                    while (distCoeffs.length < 8) {
+                        distCoeffs.push(0);
+                    }
+                    if (distCoeffs.length > 8) {
+                        distCoeffs.splice(8);
+                    }
+
+                    // Create distortion coefficients
+                    this.distCoeffs = cv.matFromArray(1, 8, cv.CV_32FC1, distCoeffs);
+                    
+                } catch (error) {
+                    throw new Error(`Invalid calibration JSON: ${error.message}`);
+                }
+            }
+
+            updateCalibration() {
+                try {
+                    this.updateCalibrationMatrices();
+                    
+                    // If camera is running, recreate undistortion maps
+                    if (this.stream && this.rawVideo.videoWidth > 0) {
+                        this.setupUndistortion();
+                    }
+                    
+                    // Hide error message and show success
+                    this.calibrationError.style.display = 'none';
+                    this.updateStatus(this.rawStatus, 'Calibration updated successfully', 'success');
+                } catch (error) {
+                    console.error('Error updating calibration:', error);
+                    // Show error message below the button
+                    this.calibrationError.textContent = `Error: ${error.message}`;
+                    this.calibrationError.style.display = 'block';
+                }
+            }
+
+            resetCalibration() {
+                // Reset to default JSON values
+                this.calibrationJson.value = `{
+    "camera_matrix": [
+        [1023.878, 0, 989.731],
+        [0, 1019.899, 501.663],
+        [0, 0, 1]
+    ],
+    "distortion_coefficients": [
+        -0.370767, 0.106516, 0.000118, -0.000542, -0.012277, 0, 0, 0
+    ]
+}`;
+                
+                this.updateCalibration();
+            }
+
+            setupEventListeners() {
+                this.startButton.addEventListener('click', () => this.startCamera());
+                this.stopButton.addEventListener('click', () => this.stopCamera());
+                this.updateCalibrationButton.addEventListener('click', () => this.updateCalibration());
+                this.resetCalibrationButton.addEventListener('click', () => this.resetCalibration());
+                
+                this.rawVideo.addEventListener('loadedmetadata', () => {
+                    this.setupRawVideoProcessing();
+                    this.setupUndistortion();
+                });
+            }
+
+            setupRawVideoProcessing() {
+                const videoWidth = this.rawVideo.videoWidth;
+                const videoHeight = this.rawVideo.videoHeight;
+
+                this.rawCanvas.width = videoWidth;
+                this.rawCanvas.height = videoHeight;
+
+                this.startRawVideoLoop();
+            }
+
+            startRawVideoLoop() {
+                const processRawFrame = () => {
+                    if (!this.stream) {
+                        return;
+                    }
+
+                    // Check if video has valid dimensions
+                    if (this.rawVideo.videoWidth === 0 || this.rawVideo.videoHeight === 0) {
+                        this.rawAnimationId = requestAnimationFrame(processRawFrame);
+                        return;
+                    }
+
+                    try {
+                        // Draw video frame to canvas
+                        this.rawCtx.drawImage(this.rawVideo, 0, 0, this.rawCanvas.width, this.rawCanvas.height);
+
+                        // Detect AprilTags if enabled
+                        if (this.enableAprilTags.checked && this.aprilTagDetector) {
+                            this.detectAndDrawAprilTags(this.rawCtx, this.rawCanvas);
+                        }
+                    } catch (error) {
+                        console.error('Error in raw video processing:', error);
+                    }
+
+                    this.rawAnimationId = requestAnimationFrame(processRawFrame);
+                };
+
+                this.rawAnimationId = requestAnimationFrame(processRawFrame);
+            }
+
+            async startCamera() {
+                try {
+                    const resolution = this.resolutionSelect.value.split('x');
+                    const width = parseInt(resolution[0]);
+                    const height = parseInt(resolution[1]);
+
+                    const constraints = {
+                        video: {
+                            width: { ideal: width },
+                            height: { ideal: height },
+                            frameRate: { ideal: 30 }
+                        }
+                    };
+
+                    // Let the browser show the system camera selection dialog
+                    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    this.rawVideo.srcObject = this.stream;
+
+                    this.startButton.disabled = true;
+                    this.stopButton.disabled = false;
+                    this.resolutionSelect.disabled = true;
+
+                    this.updateStatus(this.rawStatus, 'Camera started successfully', 'success');
+                } catch (error) {
+                    console.error('Error starting camera:', error);
+                    this.updateStatus(this.rawStatus, `Error starting camera: ${error.message}`, 'error');
+                }
+            }
+
+            stopCamera() {
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
+                    this.stream = null;
+                }
+
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+
+                if (this.rawAnimationId) {
+                    cancelAnimationFrame(this.rawAnimationId);
+                    this.rawAnimationId = null;
+                }
+
+                this.rawVideo.srcObject = null;
+                this.rawCtx.clearRect(0, 0, this.rawCanvas.width, this.rawCanvas.height);
+                this.undistortedCtx.clearRect(0, 0, this.undistortedCanvas.width, this.undistortedCanvas.height);
+
+                this.startButton.disabled = false;
+                this.stopButton.disabled = true;
+                this.resolutionSelect.disabled = false;
+
+                this.updateStatus(this.rawStatus, 'Camera stopped', 'info');
+                this.updateStatus(this.undistortedStatus, 'Undistortion stopped', 'info');
+            }
+
+            detectAndDrawAprilTags(ctx, canvas) {
+                try {
+                    if (!this.aprilTagDetector) {
+                        return;
+                    }
+
+                    // Get image data from canvas
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    
+                    // Convert to OpenCV Mat (required by apriltagjs)
+                    const mat = cv.matFromImageData(imageData);
+
+                    // Use apriltagjs detect function following the example pattern
+                    var detections = [];
+                    this.aprilTagDetector(mat, dd => {
+                        detections = dd.map(d => {
+                            return {
+                                id: d.id,
+                                data: d.points.data32S.slice()
+                            };
+                        });
+                    });
+                    
+                    // Draw detected tags on the Mat
+                    detections.forEach(d => {
+                        let color = new cv.Scalar(0, 255, 0, 255); // Green
+                        let thickness = 2;
+                        let data = d.data;
+                        
+                        // Draw the four lines forming the AprilTag square
+                        // data contains [x1, y1, x2, y2, x3, y3, x4, y4] for the 4 corners
+                        cv.line(mat, new cv.Point(data[0], data[1]), new cv.Point(data[2], data[3]),
+                            color, thickness, cv.LINE_AA);
+                        cv.line(mat, new cv.Point(data[0], data[1]), new cv.Point(data[6], data[7]),
+                            color, thickness, cv.LINE_AA);
+                        cv.line(mat, new cv.Point(data[4], data[5]), new cv.Point(data[2], data[3]),
+                            color, thickness, cv.LINE_AA);
+                        cv.line(mat, new cv.Point(data[4], data[5]), new cv.Point(data[6], data[7]),
+                            color, thickness, cv.LINE_AA);
+                        
+                        // Draw tag ID at center
+                        let centerX = (data[0] + data[2] + data[4] + data[6]) / 4;
+                        let centerY = (data[1] + data[3] + data[5] + data[7]) / 4;
+                        cv.putText(mat, `ID: ${d.id}`, new cv.Point(centerX - 20, centerY), 
+                            cv.FONT_HERSHEY_SIMPLEX, 0.6, color, 2);
+                        
+                        // Log detection info
+                        console.log(`Detected AprilTag - ID: ${d.id}`);
+                    });
+
+                    // Convert back to canvas
+                    cv.imshow(canvas, mat);
+
+                    // Cleanup OpenCV Mat
+                    mat.delete();
+
+                } catch (error) {
+                    console.error('Error in AprilTag detection:', error);
+                }
+            }
+
+            setupUndistortion() {
+                try {
+                    if (!this.cameraMatrix || !this.distCoeffs) {
+                        throw new Error('Camera calibration data not available');
+                    }
+
+                    const videoWidth = this.rawVideo.videoWidth;
+                    const videoHeight = this.rawVideo.videoHeight;
+
+                    this.undistortedCanvas.width = videoWidth;
+                    this.undistortedCanvas.height = videoHeight;
+
+                    // Clean up existing maps
+                    if (this.undistortionMaps) {
+                        this.undistortionMaps.map1.delete();
+                        this.undistortionMaps.map2.delete();
+                    }
+
+                    // Create undistortion maps for better performance
+                    const size = new cv.Size(videoWidth, videoHeight);
+                    const map1 = new cv.Mat();
+                    const map2 = new cv.Mat();
+
+                    cv.initUndistortRectifyMap(
+                        this.cameraMatrix,
+                        this.distCoeffs,
+                        new cv.Mat(),
+                        this.cameraMatrix,
+                        size,
+                        cv.CV_16SC2,
+                        map1,
+                        map2
+                    );
+
+                    this.undistortionMaps = { map1, map2 };
+
+                    this.updateStatus(this.undistortedStatus, 'Undistortion initialized', 'success');
+                    this.startUndistortionLoop();
+                } catch (error) {
+                    console.error('Error setting up undistortion:', error);
+                    this.updateStatus(this.undistortedStatus, `Undistortion setup failed: ${error.message}`, 'error');
+                }
+            }
+
+            startUndistortionLoop() {
+                const processFrame = () => {
+                    if (!this.stream || this.isProcessing) {
+                        this.animationId = requestAnimationFrame(processFrame);
+                        return;
+                    }
+
+                    // Check if video has valid dimensions before processing
+                    if (this.rawVideo.videoWidth === 0 || this.rawVideo.videoHeight === 0) {
+                        this.animationId = requestAnimationFrame(processFrame);
+                        return;
+                    }
+
+                    this.isProcessing = true;
+
+                    try {
+                        // Create temporary canvas to get video frame
+                        const tempCanvas = document.createElement('canvas');
+                        tempCanvas.width = this.rawVideo.videoWidth;
+                        tempCanvas.height = this.rawVideo.videoHeight;
+                        const tempCtx = tempCanvas.getContext('2d');
+                        tempCtx.drawImage(this.rawVideo, 0, 0);
+
+                        // Convert to OpenCV Mat
+                        const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                        const src = cv.matFromImageData(imageData);
+
+                        // Apply undistortion
+                        const dst = new cv.Mat();
+                        cv.remap(src, dst, this.undistortionMaps.map1, this.undistortionMaps.map2, cv.INTER_LINEAR);
+
+                        // Convert back to canvas
+                        cv.imshow(this.undistortedCanvas, dst);
+
+                        // Detect AprilTags on undistorted image if enabled
+                        if (this.enableAprilTags.checked && this.aprilTagDetector) {
+                            this.detectAndDrawAprilTags(this.undistortedCtx, this.undistortedCanvas);
+                        }
+
+                        // Cleanup
+                        src.delete();
+                        dst.delete();
+
+                    } catch (error) {
+                        console.error('Error in undistortion loop:', error);
+                        this.updateStatus(this.undistortedStatus, `Undistortion error: ${error.message}`, 'error');
+                    }
+
+                    this.isProcessing = false;
+                    this.animationId = requestAnimationFrame(processFrame);
+                };
+
+                this.animationId = requestAnimationFrame(processFrame);
+            }
+
+            updateStatus(element, message, type) {
+                element.textContent = message;
+                element.className = `status ${type}`;
+            }
+        }
+
+        // Initialize the application when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new CameraCalibration();
+        });
+    </script>
+</body>
+</html>
