@@ -37,8 +37,22 @@ public class AprilTagOpmode extends LinearOpMode {
     private VisionPortal visionPortal;
 
     private Servo turretServo = null;
-    private double turretAngle = 0.5;
+    private double turretAngle = 0.576;
+    // 180 / ([90 deg pos] - [-90 deg pos]); in degrees / servo value
+    private double turretSpeed = 180 / (0.901 - 0.239);
+    // private double turretSpeed = 250;
     private double lastRelativeAngle = 0;
+
+    // Record number of consecutive turns as metric to prevent oscillations
+    private int consecutiveTurns = 0;
+
+    // Make this consistent with teamwebcamcalibrations.xml
+    // Camera angle is from the horizontal, aimed upwards. Hard-coded focal length
+    // Hard code focal lengths from calibration: 786.357, 785.863; changed to work a bit better
+    private double f_x_afterresize = 786.357 * 2 / 3;
+    private double f_y_afterresize = 785.863 * 2 / 3;
+    private double c_x_afterresize = 989.731f * 2 / 3;
+    private double c_y_afterresize = 501.663f * 2 / 3;
 
     @Override
     public void runOpMode() {
@@ -100,7 +114,7 @@ public class AprilTagOpmode extends LinearOpMode {
         builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
 
         // Choose a camera resolution. Not all cameras support all resolutions.
-        builder.setCameraResolution(new Size(1280, 720));
+        builder.setCameraResolution(new Size(1920, 1080));
 
         // Enable the RC preview (LiveView).  Set "false" to omit camera monitoring.
         //builder.enableLiveView(true);
@@ -140,45 +154,48 @@ public class AprilTagOpmode extends LinearOpMode {
         // Step through the list of detections and display info for each one.
         for (AprilTagDetection detection : currentDetections) {
 
-            double[] undistortedPixels = undistortPixel(detection.center.x, detection.center.y);
-            double u_undistorted = undistortedPixels[0];
-            double v_undistorted = undistortedPixels[1];
+            // Remove pixel undistortion
+            // double[] undistortedPixels = undistortPixel(detection.center.x, detection.center.y);
+            // double u_undistorted = undistortedPixels[0];
+            // double v_undistorted = undistortedPixels[1];
 
             telemetry.addLine(String.format("\n==== (ID %d)", detection.id));
             telemetry.addLine(String.format("Center %6.0f %6.0f   (pixels)", detection.center.x, detection.center.y));
 
-            double fx = pipeline.newCameraMatrix.get(0, 0)[0];
-            double fy = pipeline.newCameraMatrix.get(1, 1)[0];
-            double cx = pipeline.newCameraMatrix.get(0, 2)[0];
-            double cy = pipeline.newCameraMatrix.get(1, 2)[0];
-
-            // Make this consistent with teamwebcamcalibrations.xml
-            // Camera angle is from the horizontal, aimed upwards. Hard-coded focal length
-            // Hard code focal lengths from calibration: 786.357, 785.863; changed to work a bit better
-            double f_x = 786.357 * 2 / 3;
-            double f_y = 785.863 * 2 / 3;
+            // double fx = pipeline.newCameraMatrix.get(0, 0)[0];
+            // double fy = pipeline.newCameraMatrix.get(1, 1)[0];
+            // double cx = pipeline.newCameraMatrix.get(0, 2)[0];
+            // double cy = pipeline.newCameraMatrix.get(1, 2)[0];
 
             double[] realWorldPosition = calculateTargetPosition3D(
-                    u_undistorted, v_undistorted,
-                    f_x, f_y,
-                    cx, cy,
+                    detection.center.x, detection.center.y,
+                    f_x_afterresize, f_y_afterresize,
+                    c_x_afterresize, c_y_afterresize,
                     34.2, 0,
                     75);
 
             double relativeAngle = Math.toDegrees(Math.atan2(realWorldPosition[1], realWorldPosition[0]));
 
             // Calculate angle using focal length
-            double focalAngle = 90 - Math.toDegrees(Math.atan2((detection.center.x - cx), f_x));
+            double focalAngle = 90 - Math.toDegrees(Math.atan2((detection.center.x - c_x_afterresize), f_x_afterresize));
 
             // Add telemetry for focalAngle
             telemetry.addData("Focal Angle", String.format("%6.2f", focalAngle));
 
             if (detection.id == 20) {
                 if (Math.abs(lastRelativeAngle - relativeAngle) > 2) {
-                    turretAngle = turretAngle - (relativeAngle - 90) / 300;
+                    consecutiveTurns += 1;
+                    double turnAmount = -(relativeAngle - 90) / turretSpeed;
+                    if (consecutiveTurns > 3) {
+                        turnAmount /= 2;
+                    }
+                    turretAngle = turretAngle + turnAmount;
 
                     // Set servo to turn to April tag; estimate 300 degrees of DOF
                     turretServo.setPosition(turretAngle);
+                }
+                else {
+                    consecutiveTurns = 0;
                 }
                 lastRelativeAngle = relativeAngle;
             }
@@ -244,7 +261,7 @@ public class AprilTagOpmode extends LinearOpMode {
 
         public double[] cameraMatrixArray;
 
-        private org.opencv.core.Size imageSize = new org.opencv.core.Size(1280, 720); // adjust to your camera stream resolution
+        private org.opencv.core.Size imageSize = new org.opencv.core.Size(1920, 1080); // adjust to your camera stream resolution
 
         @Override
         public void init(int width, int height, CameraCalibration calibration) {
@@ -262,10 +279,10 @@ public class AprilTagOpmode extends LinearOpMode {
                 // Example values — replace with your own calibrated ones; these are for 1920x1080 (scaled to 1280x720)
                 cameraMatrix.put(0, 0, 1023.878f); // fx
                 cameraMatrix.put(0, 1, 0);
-                cameraMatrix.put(0, 2, 989.731f * 2 / 3);
+                cameraMatrix.put(0, 2, 989.731f);
                 cameraMatrix.put(1, 0, 0);
                 cameraMatrix.put(1, 1, 1019.899f); // fy
-                cameraMatrix.put(1, 2, 501.663f * 2 / 3);
+                cameraMatrix.put(1, 2, 501.663f);
                 cameraMatrix.put(2, 0, 0);
                 cameraMatrix.put(2, 1, 0);
                 cameraMatrix.put(2, 2, 1);
@@ -283,11 +300,20 @@ public class AprilTagOpmode extends LinearOpMode {
             Mat undistorted = new Mat();
             Calib3d.undistort(input, undistorted, cameraMatrix, distCoeffs, newCameraMatrix);
 
+            // Scale the image down to 1280x720 after undistortion
+            Mat resized = new Mat();
+            org.opencv.core.Size newSize = new org.opencv.core.Size(1280, 720);
+            Imgproc.resize(undistorted, resized, newSize);
+
+            // Draw a blue dot at the principal point using pre-calculated after-resize coordinates
+            // Imgproc.circle(resized, new Point(c_x_afterresize, c_y_afterresize), 5, new Scalar(0, 0, 255), -1);
+
             // (Optional) Do further image processing here
             // e.g. detect apriltags, contours, colors, etc.
 
-            // Replace the input with undistorted image for display in the RC preview
-            undistorted.copyTo(input);
+            // Replace the input with resized image for display in the RC preview
+            resized.copyTo(input);
+            resized.release();
             undistorted.release();
             return null;
         }
@@ -299,17 +325,18 @@ public class AprilTagOpmode extends LinearOpMode {
         }
     }
     /**
+     * NOT USED
      * Undistorts a single pixel coordinate using the camera's calibration parameters.
      * @param u_distorted The x-coordinate of the distorted pixel.
      * @param v_distorted The y-coordinate of the distorted pixel.
      * @return A double array containing the [x, y] coordinates of the undistorted pixel.
      */
     private double[] undistortPixel(double u_distorted, double v_distorted) {
-        // Get camera calibration parameters from the pipeline
-        double fx = pipeline.cameraMatrix.get(0, 0)[0];
-        double fy = pipeline.cameraMatrix.get(1, 1)[0];
-        double cx = pipeline.cameraMatrix.get(0, 2)[0];
-        double cy = pipeline.cameraMatrix.get(1, 2)[0];
+        // Use hard-coded values
+        // double fx = pipeline.cameraMatrix.get(0, 0)[0];
+        // double fy = pipeline.cameraMatrix.get(1, 1)[0];
+        // double cx = pipeline.cameraMatrix.get(0, 2)[0];
+        // double cy = pipeline.cameraMatrix.get(1, 2)[0];
 
         // Get distortion coefficients
         double k1 = pipeline.distCoeffs.get(0, 0)[0];
@@ -319,8 +346,8 @@ public class AprilTagOpmode extends LinearOpMode {
         double k3 = pipeline.distCoeffs.get(0, 4)[0];
 
         // Normalize distorted pixel coordinates
-        double x_distorted = (u_distorted - cx) / fx;
-        double y_distorted = (v_distorted - cy) / fy;
+        double x_distorted = (u_distorted - c_x_afterresize) / f_x_afterresize;
+        double y_distorted = (v_distorted - c_x_afterresize) / f_y_afterresize;
 
         // Iteratively solve for undistorted coordinates using Newton-Raphson method
         double x_undistorted = x_distorted;
@@ -347,8 +374,8 @@ public class AprilTagOpmode extends LinearOpMode {
         }
 
         // Convert back to pixel coordinates using the new camera matrix
-        double u_undistorted = x_undistorted * pipeline.newCameraMatrix.get(0, 0)[0] + pipeline.newCameraMatrix.get(0, 2)[0];
-        double v_undistorted = y_undistorted * pipeline.newCameraMatrix.get(1, 1)[0] + pipeline.newCameraMatrix.get(1, 2)[0];
+        double u_undistorted = x_undistorted * f_x_afterresize + c_x_afterresize;
+        double v_undistorted = y_undistorted * f_y_afterresize + c_y_afterresize;
 
         return new double[]{u_undistorted, v_undistorted};
     }
