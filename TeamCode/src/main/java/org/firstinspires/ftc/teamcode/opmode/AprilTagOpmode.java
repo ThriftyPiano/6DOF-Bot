@@ -32,6 +32,22 @@ import java.util.List;
 @TeleOp(name = "April Tag Opmode", group = "Concept")
 
 public class AprilTagOpmode extends LinearOpMode {
+    
+    private class TagPosition {
+        public final double x;
+        public final double y;
+        public final double relativeAngle;
+        public final double distance;
+        public final double tagHeight;
+
+        public TagPosition(double x, double y, double relativeAngle, double distance, double tagHeight) {
+            this.x = x;
+            this.y = y;
+            this.relativeAngle = relativeAngle;
+            this.distance = distance;
+            this.tagHeight = tagHeight;
+        }
+    }
     private UndistortPipeline pipeline;
     private AprilTagProcessor aprilTag;
     private VisionPortal visionPortal;
@@ -46,13 +62,37 @@ public class AprilTagOpmode extends LinearOpMode {
     // Record number of consecutive turns as metric to prevent oscillations
     private int consecutiveTurns = 0;
 
+    /**
+     * Calculates 3D position of an AprilTag based on its detection
+     * @param detection The AprilTag detection
+     * @return TagPosition object containing position and angle information
+     */
+    private TagPosition calculateTagPosition3D(AprilTagDetection detection) {
+        // Calculate height using corners
+        org.opencv.core.Point[] corners = detection.corners;
+        double tagHeight = Math.abs((corners[0].y + corners[1].y) - (corners[2].y + corners[3].y)) / 2;
+        
+        // Calculate angle using focal length
+        double relativeAngle = 90 - Math.toDegrees(Math.atan2((detection.center.x - c_x_afterresize), f_x_afterresize));
+        
+        // Calculate position based on size
+        double groundDistance = tagSizeCm / tagHeight * f_y_afterresize;
+        double x = groundDistance * Math.cos(Math.toRadians(relativeAngle));
+        double y = groundDistance * Math.sin(Math.toRadians(relativeAngle));
+        
+        return new TagPosition(x, y, relativeAngle, groundDistance, tagHeight);
+    }
+
     // Make this consistent with teamwebcamcalibrations.xml
     // Camera angle is from the horizontal, aimed upwards. Hard-coded focal length
-    // Hard code focal lengths from calibration: 786.357, 785.863; changed to work a bit better
+    // Hard code focal lengths from calibration: 786.357, 785.863; scale down to 1280x720 from 1920x1080
     private double f_x_afterresize = 786.357 * 2 / 3;
     private double f_y_afterresize = 785.863 * 2 / 3;
     private double c_x_afterresize = 989.731f * 2 / 3;
     private double c_y_afterresize = 501.663f * 2 / 3;
+
+    // April tag height
+    private double tagSizeCm = 16.51; // 6.5 inches
 
     @Override
     public void runOpMode() {
@@ -137,7 +177,7 @@ public class AprilTagOpmode extends LinearOpMode {
 
         // Build the Vision Portal, using the above settings.
         visionPortal = builder.build();
-//        FtcDashboard.getInstance().startCameraStream(visionPortal, 0);
+        //FtcDashboard.getInstance().startCameraStream(visionPortal, 0);
 
         // Disable or re-enable the aprilTag processor at any time.
         //visionPortal.setProcessorEnabled(aprilTag, true);
@@ -154,105 +194,45 @@ public class AprilTagOpmode extends LinearOpMode {
         // Step through the list of detections and display info for each one.
         for (AprilTagDetection detection : currentDetections) {
 
-            // Remove pixel undistortion
-            // double[] undistortedPixels = undistortPixel(detection.center.x, detection.center.y);
-            // double u_undistorted = undistortedPixels[0];
-            // double v_undistorted = undistortedPixels[1];
-
             telemetry.addLine(String.format("\n==== (ID %d)", detection.id));
             telemetry.addLine(String.format("Center %6.0f %6.0f   (pixels)", detection.center.x, detection.center.y));
+            
+            TagPosition tagPosition = calculateTagPosition3D(detection);
+            
+            telemetry.addLine(String.format("Tag Height: %.1f pixels", tagPosition.tagHeight));
+            telemetry.addData("Ground Distance", String.format("%6.2f cm", tagPosition.distance));
 
-            // double fx = pipeline.newCameraMatrix.get(0, 0)[0];
-            // double fy = pipeline.newCameraMatrix.get(1, 1)[0];
-            // double cx = pipeline.newCameraMatrix.get(0, 2)[0];
-            // double cy = pipeline.newCameraMatrix.get(1, 2)[0];
+            // Add telemetry for position and angle
+            telemetry.addData("Tag Angle", String.format("%6.2f", tagPosition.relativeAngle));
 
-            double[] realWorldPosition = calculateTargetPosition3D(
-                    detection.center.x, detection.center.y,
-                    f_x_afterresize, f_y_afterresize,
-                    c_x_afterresize, c_y_afterresize,
-                    34.2, 0,
-                    75);
-
-            double relativeAngle = Math.toDegrees(Math.atan2(realWorldPosition[1], realWorldPosition[0]));
-
-            // Calculate angle using focal length
-            double focalAngle = 90 - Math.toDegrees(Math.atan2((detection.center.x - c_x_afterresize), f_x_afterresize));
-
-            // Add telemetry for focalAngle
-            telemetry.addData("Focal Angle", String.format("%6.2f", focalAngle));
-
+            // Aim at blue goal tag
             if (detection.id == 20) {
-                if (Math.abs(lastRelativeAngle - relativeAngle) > 2) {
+                if (Math.abs(lastRelativeAngle - tagPosition.relativeAngle) > 2) {
                     consecutiveTurns += 1;
-                    double turnAmount = -(relativeAngle - 90) / turretSpeed;
+                    double turnAmount = -(tagPosition.relativeAngle - 90) / turretSpeed;
+                    // Damping to prevent oscillations after more than 3 consecutive turns
                     if (consecutiveTurns > 3) {
                         turnAmount /= 2;
                     }
                     turretAngle = turretAngle + turnAmount;
 
-                    // Set servo to turn to April tag; estimate 300 degrees of DOF
+                    // Set servo to turn to April tag
                     turretServo.setPosition(turretAngle);
                 }
                 else {
                     consecutiveTurns = 0;
                 }
-                lastRelativeAngle = relativeAngle;
+                lastRelativeAngle = tagPosition.relativeAngle;
             }
 
-            telemetry.addData("Turret Angle", String.format("%6.2f", turretAngle));
+            telemetry.addData("Relative Angle", String.format("%6.2f", tagPosition.relativeAngle));
+            // Add telemetry for calculated positions
+            telemetry.addData("Calculated X Pos", String.format("%6.2f", tagPosition.x));
+            telemetry.addData("Calculated Y Pos", String.format("%6.2f", tagPosition.y));
 
-            telemetry.addData("Relative Angle", String.format("%6.2f", relativeAngle));
-
-            telemetry.addLine(String.format("Real World Position %6.2f %6.2f", realWorldPosition[0], realWorldPosition[1]));
         }   // end for() loop
 
     }   // end method telemetryAprilTag()
-
-    public double[] calculateTargetPosition3D(
-            // u_p, v_p is pixel position, c_x, c_y is principal point, f_x, f_y is focal length
-            double u_p, double v_p,
-            double f_x, double f_y,
-            double c_x, double c_y,
-            double cameraHeight, double cameraAngleRad,
-            double targetHeight
-    ) {
-        // Convert pixel to normalized camera coordinates
-        double x_cam = (u_p - c_x) / f_x;
-        double y_cam = -(v_p - c_y) / f_y;
-        double z_cam = 1.0;
-
-        // Print all three in one telemetry statement
-        telemetry.addData("Unrotated vector", String.format("%6.2f %6.2f %6.2f", x_cam, y_cam, z_cam));
-
-        // Rotate by camera tilt
-        double cos_tilt = Math.cos(cameraAngleRad);
-        double sin_tilt = Math.sin(cameraAngleRad);
-        double x_world_dir = x_cam;
-        double y_world_dir = y_cam * cos_tilt + z_cam * sin_tilt;
-        double z_world_dir = -y_cam * sin_tilt + z_cam * cos_tilt;
-
-        // Print rotated vector
-        telemetry.addData("Rotated vector", String.format("%6.2f %6.2f %6.2f", x_world_dir, y_world_dir, z_world_dir));
-
-        // Find ray intersection with ground plane
-        if (Math.abs(y_world_dir) < 1e-9) {
-            return new double[]{0.0, 0.0};
-        }
-        double t = (targetHeight - cameraHeight) / y_world_dir;
-
-        telemetry.addData("t", t);
-
-        if (t <= 0) {
-            return new double[]{0.0, 0.0};
-        }
-
-        // Calculate ground position
-        double x_world = t * x_world_dir;
-        double z_world = t * z_world_dir;
-
-        return new double[]{x_world, z_world};
-    }
 
     public class UndistortPipeline implements VisionProcessor {
         public Mat cameraMatrix;
@@ -324,60 +304,4 @@ public class AprilTagOpmode extends LinearOpMode {
             // You can draw overlays here if you want (optional)
         }
     }
-    /**
-     * NOT USED
-     * Undistorts a single pixel coordinate using the camera's calibration parameters.
-     * @param u_distorted The x-coordinate of the distorted pixel.
-     * @param v_distorted The y-coordinate of the distorted pixel.
-     * @return A double array containing the [x, y] coordinates of the undistorted pixel.
-     */
-    private double[] undistortPixel(double u_distorted, double v_distorted) {
-        // Use hard-coded values
-        // double fx = pipeline.cameraMatrix.get(0, 0)[0];
-        // double fy = pipeline.cameraMatrix.get(1, 1)[0];
-        // double cx = pipeline.cameraMatrix.get(0, 2)[0];
-        // double cy = pipeline.cameraMatrix.get(1, 2)[0];
-
-        // Get distortion coefficients
-        double k1 = pipeline.distCoeffs.get(0, 0)[0];
-        double k2 = pipeline.distCoeffs.get(0, 1)[0];
-        double p1 = pipeline.distCoeffs.get(0, 2)[0];
-        double p2 = pipeline.distCoeffs.get(0, 3)[0];
-        double k3 = pipeline.distCoeffs.get(0, 4)[0];
-
-        // Normalize distorted pixel coordinates
-        double x_distorted = (u_distorted - c_x_afterresize) / f_x_afterresize;
-        double y_distorted = (v_distorted - c_x_afterresize) / f_y_afterresize;
-
-        // Iteratively solve for undistorted coordinates using Newton-Raphson method
-        double x_undistorted = x_distorted;
-        double y_undistorted = y_distorted;
-
-        for (int i = 0; i < 5; i++) {
-            double r_sq = x_undistorted * x_undistorted + y_undistorted * y_undistorted;
-            double r_fourth = r_sq * r_sq;
-
-            // Radial distortion factor
-            double radial = 1.0 + k1 * r_sq + k2 * r_fourth + k3 * r_sq * r_fourth;
-
-            // Tangential distortion factors
-            double tangential_x = 2.0 * p1 * x_undistorted * y_undistorted + p2 * (r_sq + 2.0 * x_undistorted * x_undistorted);
-            double tangential_y = p1 * (r_sq + 2.0 * y_undistorted * y_undistorted) + 2.0 * p2 * x_undistorted * y_undistorted;
-
-            // Distorted coordinates based on current estimate
-            double x_dist_est = x_undistorted * radial + tangential_x;
-            double y_dist_est = y_undistorted * radial + tangential_y;
-
-            // Update estimate
-            x_undistorted = x_distorted - (x_dist_est - x_undistorted);
-            y_undistorted = y_distorted - (y_dist_est - y_undistorted);
-        }
-
-        // Convert back to pixel coordinates using the new camera matrix
-        double u_undistorted = x_undistorted * f_x_afterresize + c_x_afterresize;
-        double v_undistorted = y_undistorted * f_y_afterresize + c_y_afterresize;
-
-        return new double[]{u_undistorted, v_undistorted};
-    }
-
 }   // end class
