@@ -14,6 +14,7 @@ servo = serial.Serial('/dev/tty.usbserial-1120', 115200, timeout=0.5)
 servoPos = 0
 lastCalculatedRelativeAngle = None
 auto_aim_enabled = False
+isMoving = False
 
 # Threading variables
 angle_lock = threading.Lock()
@@ -183,6 +184,9 @@ class CameraThread(threading.Thread):
         while not should_exit:
             # Capture and process frame
             ret, frame = self.cap.read()
+            if isMoving:
+                time.sleep(0.001)
+                continue
             if not ret:
                 print("Error: Failed to grab frame in camera thread")
                 break
@@ -271,10 +275,13 @@ def move_servo_by_angle(angle: float) -> None:
         servoPos = new_servo_value  # Update global position
         print(f"Servo value: {servoPos:.2f}")
         print(f"Calculated angle: {angle:.2f}")
+        global isMoving
+        isMoving = True
         # Send the command to the servo with the correct format
         servo.write(f'set_servo_position(16, {servoPos})\r'.encode())
         # Sleep an amount of time based on angle turned to give servo time to turn
         time.sleep(0.055 / 60 * abs(angle) * 10)
+        isMoving = False
 
 def main():
     # Initialize camera and calibration
