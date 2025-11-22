@@ -6,12 +6,22 @@ import serial.tools.list_ports
 import time
 import sys
 import glob
+import threading
 from typing import Tuple, List, Optional, Union
 
 # Global variables
 servo = serial.Serial('/dev/tty.usbserial-1120', 115200, timeout=0.5)
 servoPos = 0
 lastCalculatedRelativeAngle = None
+auto_aim_enabled = False
+
+# Threading variables
+angle_lock = threading.Lock()
+current_angle = None
+frame_lock = threading.Lock()
+display_frames = {}
+tracking_color = "red"
+should_exit = False
 
 def init_camera() -> Tuple[cv2.VideoCapture, int, int]:
     """Initialize the camera with specified resolution."""
@@ -120,13 +130,13 @@ def draw_results(frame: np.ndarray, contours: List[np.ndarray],
 
 def add_frame_info(frame: np.ndarray, fps: float, width: int, height: int, label: str) -> None:
     """Add FPS, resolution, and label information to the frame."""
-    cv2.putText(frame, f"FPS: {fps:.1f}", (30, 50), 
-               cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2, cv2.LINE_AA)
-    cv2.putText(frame, f"Resolution: {width}x{height}", (30, 100),
-               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+    cv2.putText(frame, f"FPS: {fps:.1f}", (30, 20), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2, cv2.LINE_AA)
+    cv2.putText(frame, f"Resolution: {width}x{height}", (30, 60),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2, cv2.LINE_AA)
     if label:
-        cv2.putText(frame, label, (30, 150),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(frame, label, (30, 100),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2, cv2.LINE_AA)
 
 # Calculate relative angle of point based on focal length
 def calculate_relative_angle(point: Tuple[int, int], width: int, focal_length: float = 131.06) -> float:
@@ -142,51 +152,129 @@ def calculate_relative_angle(point: Tuple[int, int], width: int, focal_length: f
     """
     x, _ = point
     # Use camera's principal point (cx) which is 320/2 = 160 for our scaled image
-    center_x = width  # This is cx from the camera matrix for 320x240 resolution
+    center_x = width / 2  # This is cx from the camera matrix for 320x240 resolution
     # Calculate angle using arctangent of (x offset / focal length)
     angle = np.arctan2(x - center_x, focal_length)
     return np.degrees(angle)
 
-# Move servo such that the highest detected point is centered
-def move_servo(highest_point: Optional[Tuple[tuple, float]], width: int, height: int) -> None:
-    """Move servo to center the highest detected point."""
-    global servo
+class CameraThread(threading.Thread):
+    """Separate thread for camera processing and angle calculation."""
     
-    if highest_point is not None:
-        point, y = highest_point
-        # Calculate angle using the camera's focal length and calibration
-        angle = calculate_relative_angle(point, width)
+    def __init__(self, cap, camera_matrix, dist_coeffs, target_size):
+        threading.Thread.__init__(self)
+        self.cap = cap
+        self.camera_matrix = camera_matrix
+        self.dist_coeffs = dist_coeffs
+        self.target_size = target_size
+        self.daemon = True  # Thread will exit when main program exits
         
-        # Convert angle to servo value using the servo's range
-        # servoTurnRate = 135/0.9 (degrees per servo value)
-        # We need to convert our measured angle to a servo value
-        global servoPos
-        new_servo_value = servoPos - angle / (135 / 0.9)  # Convert degrees to servo value
-
-        global lastCalculatedRelativeAngle
-
-        # Prevent duplicate movements
-        if lastCalculatedRelativeAngle is not None:
-            if abs(lastCalculatedRelativeAngle - angle) < 5:
-                return
-
-        lastCalculatedRelativeAngle = angle
+        # FPS calculation variables
+        self.fps_counter = 0
+        self.fps_start_time = time.time()
+        self.fps_display = 0
+        self.MIN_CONTOUR_AREA = 100
         
-        # Bound the servo value between -0.9 and 0.9
-        new_servo_value = max(-0.9, min(0.9, new_servo_value))
+    def run(self):
+        """Main camera processing loop."""
+        global current_angle, display_frames, tracking_color, should_exit
         
-        # Check if the new position is significantly different from current position
-        # 5 degrees = 5 / (135/0.9) ≈ 0.033 in servo value units
-        if abs(new_servo_value - servoPos) > 0.005:
-            servoPos = new_servo_value  # Update global position
+        print("Camera thread started")
+        
+        while not should_exit:
+            # Capture and process frame
+            ret, frame = self.cap.read()
+            if not ret:
+                print("Error: Failed to grab frame in camera thread")
+                break
+                
+            # Undistort and scale frame
+            processed_frame = undistort_and_scale(frame, self.camera_matrix, self.dist_coeffs, self.target_size)
             
-            print(f"Calculated angle: {angle:.2f}")
-            print(f"Servo value: {servoPos:.2f}")
+            # Process red contours
+            red_contours, red_filtered = detect_color_contours(processed_frame, "red")
+            valid_red_contours, red_highest = process_contours(red_contours, self.MIN_CONTOUR_AREA)
+            draw_results(red_filtered, valid_red_contours, red_highest, (0, 0, 255))
             
-            # Send the command to the servo with the correct format
-            servo.write(f'set_servo_position(5, {servoPos})\r'.encode())
+            # Process blue contours
+            blue_contours, blue_filtered = detect_color_contours(processed_frame, "blue")
+            valid_blue_contours, blue_highest = process_contours(blue_contours, self.MIN_CONTOUR_AREA)
+            draw_results(blue_filtered, valid_blue_contours, blue_highest, (255, 0, 0))
+            
+            # Calculate FPS
+            self.fps_counter += 1
+            elapsed_time = time.time() - self.fps_start_time
+            if elapsed_time >= 1.0:
+                self.fps_display = self.fps_counter / elapsed_time
+                self.fps_counter = 0
+                self.fps_start_time = time.time()
+            
+            # Add information to frames
+            width, height = self.target_size
+            add_frame_info(red_filtered, self.fps_display, width, height, "Red Filter")
+            add_frame_info(blue_filtered, self.fps_display, width, height, "Blue/Cyan Filter")
+            
+            # Add tracking and auto-aim indicators to processed frame
+            status_text = f"Tracking: {tracking_color} | Auto-aim: {'ON' if auto_aim_enabled else 'OFF'}"
+            cv2.putText(processed_frame, status_text, (30, 150),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+            
+            # Calculate angle for tracked color and update global variable
+            with angle_lock:
+                if tracking_color == "red" and red_highest is not None:
+                    point, _ = red_highest
+                    current_angle = calculate_relative_angle(point, width)
+                elif tracking_color == "blue" and blue_highest is not None:
+                    point, _ = blue_highest
+                    current_angle = calculate_relative_angle(point, width)
+                else:
+                    current_angle = None
+            
+            # Update display frames for main thread
+            with frame_lock:
+                display_frames = {
+                    'raw': cv2.resize(frame, self.target_size),
+                    'processed': processed_frame,
+                    'red_filtered': red_filtered,
+                    'blue_filtered': blue_filtered
+                }
         
-    servo.close()
+        print("Camera thread ended")
+
+# Move servo such that the highest detected point is centered
+def move_servo_by_angle(angle: float) -> None:
+    """Move servo based on calculated angle."""
+    global servoPos, lastCalculatedRelativeAngle
+    
+    # Convert angle to servo value using the servo's range
+    # servoTurnRate = 135/0.9 (degrees per servo value)
+    # turnRate = 138 / 0.9  # degrees per servo value
+    turnRate = 200 / 0.9  # conservative damping estimate
+    
+    new_servo_value = servoPos + angle / turnRate  # Convert degrees to servo value.
+
+    # Prevent duplicate movements
+    if lastCalculatedRelativeAngle is not None:
+        # Prevent oscillation with damping
+        # if lastCalculatedRelativeAngle * angle < 0:
+            # angle *= 1
+            # angle *= 0.5
+        if abs(lastCalculatedRelativeAngle - angle) < 2:
+            return
+
+    lastCalculatedRelativeAngle = angle
+    
+    # Bound the servo value between -0.9 and 0.9
+    new_servo_value = max(-0.9, min(0.9, new_servo_value))
+    
+    # Check if the new position is significantly different from current position
+    if abs(new_servo_value - servoPos) > 0.001:
+        servoPos = new_servo_value  # Update global position
+        print(f"Servo value: {servoPos:.2f}")
+        print(f"Calculated angle: {angle:.2f}")
+        # Send the command to the servo with the correct format
+        servo.write(f'set_servo_position(16, {servoPos})\r'.encode())
+        # Sleep an amount of time based on angle turned to give servo time to turn
+        time.sleep(0.055 / 60 * abs(angle) * 10)
 
 def main():
     # Initialize camera and calibration
@@ -194,96 +282,71 @@ def main():
     camera_matrix, dist_coeffs = get_calibration_matrices()
     target_size = (320, 240)
     
-    # FPS calculation variables
-    fps_counter = 0
-    fps_start_time = time.time()
-    fps_display = 0
-    MIN_CONTOUR_AREA = 100  # Base minimum area for 320x240
+    global auto_aim_enabled, tracking_color, should_exit
     
     # Tracking parameters
-    TRACK_COLOR = "red"  # Can be "red" or "blue"
-    auto_aim_enabled = True  # State for auto-aiming
+    auto_aim_enabled = False  # State for auto-aiming
     
-    print(f"Tracking {TRACK_COLOR} objects")
+    print(f"Tracking {tracking_color} objects")
     print("Press 'q' to quit, 'ESC' to exit")
     print("Press 'r' to track red, 'b' to track blue")
-    print("Press SPACE to toggle auto-aim")
+    print("Press 'p' to toggle auto-aim")
 
     # Initialize servo to center position
-    servo = serial.Serial('/dev/tty.usbserial-1120', 115200, timeout=0.5)
-    servo.write(b'set_servo_position(5, 0)\r')
-    time.sleep(0.5)  # Give servo time to move to initial position
-    servo.close()
-
-    while True:
-        cv2.waitKey(500)
-        # Capture and process frame
-        ret, frame = cap.read()
-        if not ret:
-            print("Error: Failed to grab frame")
-            break
+    servo.write(b'set_servo_position(16, 0)\r')
+    
+    # Start camera thread
+    camera_thread = CameraThread(cap, camera_matrix, dist_coeffs, target_size)
+    camera_thread.start()
+    
+    print("Main thread started - handling servo control")
+    
+    try:
+        while not should_exit:
+            # Handle servo movement based on calculated angle
+            if auto_aim_enabled:
+                with angle_lock:
+                    if current_angle is not None:
+                        move_servo_by_angle(current_angle)
             
-        # Undistort and scale frame
-        processed_frame = undistort_and_scale(frame, camera_matrix, dist_coeffs, target_size)
-        
-        # Process red contours
-        red_contours, red_filtered = detect_color_contours(processed_frame, "red")
-        valid_red_contours, red_highest = process_contours(red_contours, MIN_CONTOUR_AREA)
-        draw_results(red_filtered, valid_red_contours, red_highest, (0, 0, 255))
-        
-        # Process blue contours
-        blue_contours, blue_filtered = detect_color_contours(processed_frame, "blue")
-        valid_blue_contours, blue_highest = process_contours(blue_contours, MIN_CONTOUR_AREA)
-        draw_results(blue_filtered, valid_blue_contours, blue_highest, (255, 0, 0))
-        
-        # Calculate FPS
-        fps_counter += 1
-        elapsed_time = time.time() - fps_start_time
-        if elapsed_time >= 1.0:
-            fps_display = fps_counter / elapsed_time
-            fps_counter = 0
-            fps_start_time = time.time()
-        
-        # Add information to frames
-        width, height = target_size
-        add_frame_info(red_filtered, fps_display, width, height, "Red Filter")
-        add_frame_info(blue_filtered, fps_display, width, height, "Blue/Cyan Filter")
-        
-        # Update servo position based on tracked color if auto-aim is enabled
-        current_time = time.time()
-        if auto_aim_enabled:
-            if TRACK_COLOR == "red":
-                move_servo(red_highest, target_size[0], target_size[1])
-            else:
-                move_servo(blue_highest, target_size[0], target_size[1])
-            last_movement_time = current_time
-
-        # Display frames
-        cv2.imshow('Raw Camera Stream', cv2.resize(frame, target_size))
-        cv2.imshow('Undistorted Stream', processed_frame)
-        cv2.imshow('Red Filtered Stream', red_filtered)
-        cv2.imshow('Blue/Cyan Filtered Stream', blue_filtered)
-        
-        # Add tracking and auto-aim indicators
-        status_text = f"Tracking: {TRACK_COLOR} | Auto-aim: {'ON' if auto_aim_enabled else 'OFF'}"
-        cv2.putText(processed_frame, status_text, (30, 150),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-        
-        # Check for exit, color switching, and auto-aim toggle
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q') or key == 27:  # 27 is ESC key
-            break
-        elif key == ord('r'):
-            TRACK_COLOR = "red"
-            print("Switching to track red")
-        elif key == ord('b'):
-            TRACK_COLOR = "blue"
-            print("Switching to track blue")
-        elif key == ord(' '):  # Space bar
-            auto_aim_enabled = not auto_aim_enabled
-            print(f"Auto-aim {'enabled' if auto_aim_enabled else 'disabled'}")
+            # Display frames if available
+            with frame_lock:
+                if display_frames:
+                    cv2.imshow('Raw Camera Stream', display_frames.get('raw'))
+                    cv2.imshow('Undistorted Stream', display_frames.get('processed'))
+                    cv2.imshow('Red Filtered Stream', display_frames.get('red_filtered'))
+                    cv2.imshow('Blue/Cyan Filtered Stream', display_frames.get('blue_filtered'))
+            
+            # Check for exit, color switching, and auto-aim toggle
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q') or key == 27:  # 27 is ESC key
+                should_exit = True
+                break
+            elif key == ord('r'):
+                tracking_color = "red"
+                print("Switching to track red")
+            elif key == ord('b'):
+                tracking_color = "blue"
+                print("Switching to track blue")
+            elif key == ord('p'):  # P key
+                auto_aim_enabled = not auto_aim_enabled
+                print(f"Auto-aim {'enabled' if auto_aim_enabled else 'disabled'}")
+            
+            # Small sleep to prevent excessive CPU usage
+            time.sleep(0.001)
+    
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt received")
+        should_exit = True
     
     # Clean up
+    print("Shutting down...")
+    should_exit = True
+    
+    # Wait for camera thread to finish
+    if camera_thread.is_alive():
+        camera_thread.join(timeout=2.0)
+    
     cap.release()
     cv2.destroyAllWindows()
     print("Camera stream ended")
