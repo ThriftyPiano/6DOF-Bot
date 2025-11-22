@@ -271,7 +271,7 @@ def move_servo_by_angle(angle: float) -> None:
     new_servo_value = max(-0.9, min(0.9, new_servo_value))
     
     # Check if the new position is significantly different from current position
-    if abs(new_servo_value - servoPos) > 0.001:
+    if abs(new_servo_value - servoPos) > 0.005:
         servoPos = new_servo_value  # Update global position
         print(f"Servo value: {servoPos:.2f}")
         print(f"Calculated angle: {angle:.2f}")
@@ -280,7 +280,7 @@ def move_servo_by_angle(angle: float) -> None:
         # Send the command to the servo with the correct format
         servo.write(f'set_servo_position(16, {servoPos})\r'.encode())
         # Sleep an amount of time based on angle turned to give servo time to turn
-        time.sleep(0.055 / 60 * abs(angle) * 10)
+        time.sleep(0.055 / 60 * abs(angle) * 4 + 0.05)
         isMoving = False
 
 def main():
