@@ -78,4 +78,12 @@ lint/intermediates/
 lint/generated/
 lint/outputs/
 lint/tmp/
-# lint/reports/
+# lint/reports/TeamCode/libs/desktop/*.jar
+TeamCode/libs/desktop/*.so
+TeamCode/libs/desktop/*.dylib
+TeamCode/libs/desktop/
+android_env.sh
+opencv-openpnp.jar
+
+# Test data
+data
