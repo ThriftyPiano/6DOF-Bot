@@ -30,6 +30,11 @@ import org.firstinspires.ftc.robotcore.internal.camera.calibration.CameraCalibra
 @TeleOp(name = "Vision OpMode (Localizer + Artifacts)", group = "Vision")
 public class VisionOpMode extends LinearOpMode {
 
+    // Heading offset: field heading = imuYaw + HEADING_OFFSET
+    // Set this to the robot's initial heading in field coordinates (radians, CCW from +X).
+    // Example: if robot starts facing -X (toward the tag wall), set to Math.PI.
+    private static final double HEADING_OFFSET = Math.PI;
+
     private VisionPortal visionPortal;
     private AprilTagProcessor aprilTag;
     private ArtifactProcessor artifactProcessor;
@@ -90,11 +95,15 @@ public class VisionOpMode extends LinearOpMode {
                 localizerDetections.add(new VisionLocalizer.Detection(det.id, corners));
             }
 
-            // Per-tag camera poses
+            // Per-tag camera poses (unconstrained, for comparison)
             Map<Integer, VisionLocalizer.VisionPose3D> perTagPoses = localizer.estimateCameraPosePerTag(localizerDetections);
             VisionLocalizer.VisionPose3D bluePose = perTagPoses.get(20);
             VisionLocalizer.VisionPose3D redPose = perTagPoses.get(24);
-            VisionLocalizer.VisionPose3D cameraPose = localizer.estimateCameraPose(localizerDetections);
+
+            // MegaTag2: constrained pose using IMU yaw converted to field heading
+            double imuYaw = imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);
+            double fieldHeading = imuYaw + HEADING_OFFSET;
+            VisionLocalizer.VisionPose3D cameraPose = localizer.estimateCameraPoseConstrained(localizerDetections, fieldHeading);
 
             // 2. Dashboard TelemetryPacket with Field Overlay
             TelemetryPacket packet = new TelemetryPacket();
@@ -115,9 +124,11 @@ public class VisionOpMode extends LinearOpMode {
                 packet.put("Red Y", redPose.y);
                 packet.put("Red Z", redPose.z);
             }
+            packet.put("IMU Yaw", Math.toDegrees(imuYaw));
+            packet.put("Field Heading", Math.toDegrees(fieldHeading));
             if (cameraPose != null) {
                 drawPose(fieldOverlay, cameraPose, "#00FF00");
-                packet.put("Camera Pose", cameraPose.toString());
+                packet.put("Camera Pose (MT2)", cameraPose.toString());
                 packet.put("Cam X", cameraPose.x);
                 packet.put("Cam Y", cameraPose.y);
                 packet.put("Cam Z", cameraPose.z);

@@ -78,6 +78,143 @@ public class VisionLocalizer {
     }
 
     /**
+     * MegaTag2-style constrained pose estimation.
+     * Uses camera heading in field coordinates + flat-on-floor assumption (roll=0, pitch=0)
+     * to fix rotation, then solves for translation via linear least-squares across all visible tags.
+     *
+     * With rotation known, each observed 2D corner provides 2 equations in 3 unknowns (tx, ty, tz).
+     * A single tag (4 corners) gives 8 equations for 3 unknowns — well over-determined.
+     *
+     * @param detections list of tag detections with corners in TL, TR, BR, BL order
+     * @param headingRadians camera heading in field coordinates (radians, CCW positive from +X axis)
+     * @return camera pose in field coordinates, or null if no known tags detected
+     */
+    public VisionPose3D estimateCameraPoseConstrained(List<Detection> detections, double headingRadians) {
+        if (detections == null || detections.isEmpty()) return null;
+
+        // Gather all 3D-2D correspondences across all visible known tags
+        List<Point3> allObjectPoints = new ArrayList<>();
+        List<Point> allImagePoints = new ArrayList<>();
+
+        for (Detection det : detections) {
+            if (!fieldMap.containsKey(det.id)) continue;
+            VisionPose3D tagPose = fieldMap.get(det.id);
+            double tagYaw = tagPose.yaw;
+            double cosT = Math.cos(tagYaw), sinT = Math.sin(tagYaw);
+            double half = TAG_SIZE_INCHES / 2.0;
+
+            // Tag corners in tag-local frame (X-right, Y-down, Z-into-tag)
+            double[][] tagLocal = {
+                {-half, -half, 0}, // TL
+                { half, -half, 0}, // TR
+                { half,  half, 0}, // BR
+                {-half,  half, 0}  // BL
+            };
+
+            // Transform to field coordinates
+            // Tag axes in field: X_tag=(-sinYaw, cosYaw, 0), Y_tag=(0,0,-1), Z_tag=(-cosYaw,-sinYaw,0)
+            for (int i = 0; i < 4; i++) {
+                double lx = tagLocal[i][0], ly = tagLocal[i][1], lz = tagLocal[i][2];
+                double fx = tagPose.x + (-sinT) * lx + (-cosT) * lz;
+                double fy = tagPose.y + cosT * lx + (-sinT) * lz;
+                double fz = tagPose.z + (-1) * ly;
+                allObjectPoints.add(new Point3(fx, fy, fz));
+                allImagePoints.add(new Point(det.corners[i].x, det.corners[i].y));
+            }
+        }
+
+        if (allObjectPoints.isEmpty()) return null;
+
+        // Build R_cam_field from heading (flat on floor: roll=0, pitch=0).
+        //
+        // Camera frame (OpenCV): X-right, Y-down, Z-forward.
+        // Field frame: X/Y horizontal, Z-up.
+        //
+        // At heading h, camera faces direction (cos h, sin h, 0) in field.
+        // Camera axes in field coordinates:
+        //   Z_cam (forward) = (cos h, sin h, 0)
+        //   Y_cam (down)    = (0, 0, -1)
+        //   X_cam (right)   = Y_cam × Z_cam = (sin h, -cos h, 0)
+        //
+        // R_cam_field maps field vectors to camera frame. Its rows are the
+        // camera axes expressed as field-coordinate vectors:
+        //   Row 0 (X_cam): (sin h, -cos h,  0)
+        //   Row 1 (Y_cam): (0,      0,     -1)
+        //   Row 2 (Z_cam): (cos h,  sin h,  0)
+
+        double ch = Math.cos(headingRadians), sh = Math.sin(headingRadians);
+
+        double[][] R = {
+            { sh, -ch, 0},
+            {  0,   0, -1},
+            { ch,  sh, 0}
+        };
+
+        // Solve for camera position t_field via linear least-squares.
+        // P_cam = R*(P_field - t_field), let Q = R*P_field, T = R*t_field.
+        // From projection equations, rearranging to eliminate division:
+        //   fx*Tx - (u-cx)*Tz = fx*Qx - (u-cx)*Qz
+        //   fy*Ty - (v-cy)*Tz = fy*Qy - (v-cy)*Qz
+        // This is linear in T = [Tx, Ty, Tz]. Solve A*T = b, then t_field = R^T * T.
+
+        // Undistort image points first
+        MatOfPoint2f distorted = new MatOfPoint2f(allImagePoints.toArray(new Point[0]));
+        MatOfPoint2f undistorted = new MatOfPoint2f();
+        Calib3d.undistortPoints(distorted, undistorted, cameraMatrix, distCoeffs, new Mat(), cameraMatrix);
+        Point[] undistPts = undistorted.toArray();
+
+        int n = allObjectPoints.size();
+        // A is (2n x 3), b is (2n x 1)
+        Mat A = new Mat(2 * n, 3, CvType.CV_64F);
+        Mat b = new Mat(2 * n, 1, CvType.CV_64F);
+
+        double fxVal = cameraMatrix.get(0, 0)[0];
+        double fyVal = cameraMatrix.get(1, 1)[0];
+        double cxVal = cameraMatrix.get(0, 2)[0];
+        double cyVal = cameraMatrix.get(1, 2)[0];
+
+        for (int i = 0; i < n; i++) {
+            Point3 pf = allObjectPoints.get(i);
+
+            // Q = R * P_field
+            double qx = R[0][0] * pf.x + R[0][1] * pf.y + R[0][2] * pf.z;
+            double qy = R[1][0] * pf.x + R[1][1] * pf.y + R[1][2] * pf.z;
+            double qz = R[2][0] * pf.x + R[2][1] * pf.y + R[2][2] * pf.z;
+
+            double u = undistPts[i].x;
+            double v = undistPts[i].y;
+
+            // Row 2i: fx*Tx - (u-cx)*Tz = fx*Qx - (u-cx)*Qz
+            A.put(2 * i, 0, fxVal);
+            A.put(2 * i, 1, 0);
+            A.put(2 * i, 2, -(u - cxVal));
+            b.put(2 * i, 0, fxVal * qx - (u - cxVal) * qz);
+
+            // Row 2i+1: fy*Ty - (v-cy)*Tz = fy*Qy - (v-cy)*Qz
+            A.put(2 * i + 1, 0, 0);
+            A.put(2 * i + 1, 1, fyVal);
+            A.put(2 * i + 1, 2, -(v - cyVal));
+            b.put(2 * i + 1, 0, fyVal * qy - (v - cyVal) * qz);
+        }
+
+        // Solve A * T = b via least squares (SVD)
+        Mat T = new Mat();
+        Core.solve(A, b, T, Core.DECOMP_SVD);
+
+        // T = R * t_field  =>  t_field = R^T * T  (R is orthogonal so R^-1 = R^T)
+        double Tx = T.get(0, 0)[0], Ty = T.get(1, 0)[0], Tz = T.get(2, 0)[0];
+        double tfx = R[0][0] * Tx + R[1][0] * Ty + R[2][0] * Tz;
+        double tfy = R[0][1] * Tx + R[1][1] * Ty + R[2][1] * Tz;
+        double tfz = R[0][2] * Tx + R[1][2] * Ty + R[2][2] * Tz;
+
+        // Clean up
+        A.release(); b.release(); T.release();
+        distorted.release(); undistorted.release();
+
+        return new VisionPose3D(tfx, tfy, tfz, 0, 0, headingRadians);
+    }
+
+    /**
      * Returns a per-tag map of camera pose estimates in field coordinates.
      * Uses solvePnP to get tag-to-camera transform, then inverts to get camera position.
      */

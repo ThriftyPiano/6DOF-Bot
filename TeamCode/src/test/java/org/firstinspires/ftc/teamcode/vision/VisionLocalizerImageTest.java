@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode.vision;
 
+import org.opencv.calib3d.Calib3d;
 import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.objdetect.ArucoDetector;
@@ -17,10 +18,10 @@ public class VisionLocalizerImageTest {
         String arch = System.getProperty("os.arch").toLowerCase();
         String libSuffix = arch.contains("aarch64") || arch.contains("arm64") ? "_arm64" : "_x64";
         String ext = os.contains("mac") ? ".dylib" : ".so";
-        
+
         String libPath = System.getProperty("user.dir") + "/TeamCode/libs/desktop/libopencv_java490" + libSuffix + ext;
         System.out.println("Loading " + os + " (" + arch + ") native library from: " + libPath);
-        
+
         try {
             System.load(libPath);
             System.out.println("Successfully loaded OpenCV native library.");
@@ -34,23 +35,57 @@ public class VisionLocalizerImageTest {
         String name;
         String path;
         double gtX, gtY;
-        double simulatedYaw;
+        double headingRadians; // camera heading in field coordinates
 
-        TestCase(String name, String path, double gtX, double gtY, double simulatedYaw) {
+        TestCase(String name, String path, double gtX, double gtY, double headingRadians) {
             this.name = name;
             this.path = path;
             this.gtX = gtX;
             this.gtY = gtY;
-            this.simulatedYaw = simulatedYaw;
+            this.headingRadians = headingRadians;
         }
+    }
+
+    /**
+     * Extract camera heading from detected tags using solvePnP on field-frame points.
+     * This simulates what the IMU would provide on the real robot.
+     */
+    static double extractHeading(List<VisionLocalizer.Detection> detections, Mat cameraMatrix, MatOfDouble distCoeffs) {
+        List<Point3> fieldPts = new ArrayList<>();
+        List<Point> imgPts = new ArrayList<>();
+        for (VisionLocalizer.Detection det : detections) {
+            VisionLocalizer.VisionPose3D tagPose = VisionLocalizer.DECODE_FIELD_MAP.get(det.id);
+            if (tagPose == null) continue;
+            double tagYaw = tagPose.yaw;
+            double cosT = Math.cos(tagYaw), sinT = Math.sin(tagYaw);
+            double half = VisionLocalizer.TAG_SIZE_INCHES / 2.0;
+            double[][] tl = {{-half,-half,0},{half,-half,0},{half,half,0},{-half,half,0}};
+            for (int i = 0; i < 4; i++) {
+                double lx = tl[i][0], ly = tl[i][1], lz = tl[i][2];
+                fieldPts.add(new Point3(
+                    tagPose.x + (-sinT)*lx + (-cosT)*lz,
+                    tagPose.y + cosT*lx + (-sinT)*lz,
+                    tagPose.z + (-1)*ly));
+                imgPts.add(new Point(det.corners[i].x, det.corners[i].y));
+            }
+        }
+        MatOfPoint3f objM = new MatOfPoint3f(fieldPts.toArray(new Point3[0]));
+        MatOfPoint2f imgM = new MatOfPoint2f(imgPts.toArray(new Point[0]));
+        Mat rvec = new Mat(), tvec = new Mat();
+        Calib3d.solvePnP(objM, imgM, cameraMatrix, distCoeffs, rvec, tvec);
+        Mat R = new Mat();
+        Calib3d.Rodrigues(rvec, R);
+        // Z_cam direction = row 2 of R = (cos h, sin h, ~0)
+        return Math.atan2(R.get(2, 1)[0], R.get(2, 0)[0]);
     }
 
     public static void main(String[] args) {
         String testDataDir = System.getProperty("user.dir") + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/";
 
         List<TestCase> tests = new ArrayList<>();
-        // Camera at field origin (0,0), 44cm height, facing the tags
-        tests.add(new TestCase("Capture Field", testDataDir + "capture_field.jpg", 0.0, 0.0, 0.0));
+        // Camera at field origin (0,0), 44cm height, facing -X toward the wall with tags
+        // Heading ~176.4° determined from solvePnP (camera not perfectly aligned to -X axis)
+        tests.add(new TestCase("Capture Field", testDataDir + "capture_field.jpg", 0.0, 0.0, Math.PI));
 
         // Setup Localizer
         Map<Integer, VisionLocalizer.VisionPose3D> fieldMap = VisionLocalizer.DECODE_FIELD_MAP;
@@ -107,25 +142,43 @@ public class VisionLocalizerImageTest {
                 System.out.println("  No tags detected!");
             }
 
-            // Per-tag poses
+            // Per-tag poses (unconstrained)
             Map<Integer, VisionLocalizer.VisionPose3D> perTagPoses = localizer.estimateCameraPosePerTag(detections);
             for (Map.Entry<Integer, VisionLocalizer.VisionPose3D> entry : perTagPoses.entrySet()) {
                 VisionLocalizer.VisionPose3D p = entry.getValue();
                 System.out.printf("  Tag %d -> Camera Pose: X=%.2f, Y=%.2f, Z=%.2f\n", entry.getKey(), p.x, p.y, p.z);
             }
 
-            // Averaged pose
+            // Averaged pose (unconstrained)
             VisionLocalizer.VisionPose3D cameraPose = localizer.estimateCameraPose(detections);
-
             if (cameraPose != null) {
-                System.out.println("Averaged Camera Pose: " + cameraPose.toString());
-                System.out.printf("Ground Truth: X=%.2f, Y=%.2f\n", test.gtX, test.gtY);
-
+                System.out.println("Unconstrained Pose: " + cameraPose.toString());
                 double errX = cameraPose.x - test.gtX;
                 double errY = cameraPose.y - test.gtY;
-                System.out.printf("Error: dX=%.2f, dY=%.2f, Dist=%.2f\n", errX, errY, Math.sqrt(errX*errX + errY*errY));
-            } else {
-                System.out.println("Camera pose estimation FAILED.");
+                System.out.printf("Unconstrained Error: dX=%.2f, dY=%.2f, Dist=%.2f\n", errX, errY, Math.sqrt(errX*errX + errY*errY));
+            }
+
+            // Extract true heading from vision (simulates accurate IMU)
+            double trueHeading = extractHeading(detections, cameraMatrix, distCoeffs);
+            System.out.printf("Extracted heading: %.2f° (nominal: %.2f°)\n",
+                Math.toDegrees(trueHeading), Math.toDegrees(test.headingRadians));
+
+            // MegaTag2: constrained pose with nominal heading
+            VisionLocalizer.VisionPose3D mt2Nominal = localizer.estimateCameraPoseConstrained(detections, test.headingRadians);
+            if (mt2Nominal != null) {
+                System.out.println("MT2 Pose (nominal heading): " + mt2Nominal.toString());
+                double errX = mt2Nominal.x - test.gtX;
+                double errY = mt2Nominal.y - test.gtY;
+                System.out.printf("MT2 Nominal Error:   dX=%.2f, dY=%.2f, Dist=%.2f\n", errX, errY, Math.sqrt(errX*errX + errY*errY));
+            }
+
+            // MegaTag2: constrained pose with extracted heading (best case)
+            VisionLocalizer.VisionPose3D mt2Best = localizer.estimateCameraPoseConstrained(detections, trueHeading);
+            if (mt2Best != null) {
+                System.out.println("MT2 Pose (true heading):    " + mt2Best.toString());
+                double errX = mt2Best.x - test.gtX;
+                double errY = mt2Best.y - test.gtY;
+                System.out.printf("MT2 True Error:      dX=%.2f, dY=%.2f, Dist=%.2f\n", errX, errY, Math.sqrt(errX*errX + errY*errY));
             }
         }
         System.out.println("\nDone.");
