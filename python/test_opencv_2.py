@@ -9,7 +9,6 @@ Tag top: middle of the yellow point line
 import cv2
 import numpy as np
 import sys
-from pathlib import Path
 from typing import Tuple
 
 # Import functions from keypoint_detection_functions.py

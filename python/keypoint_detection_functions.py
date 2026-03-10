@@ -96,7 +96,10 @@ def detect_color_contours(frame: np.ndarray, color: str, apply_region_mask: bool
     Returns:
         Tuple of (contours, filtered_frame)
     """
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    # Apply Gaussian blur to reduce noise
+    blurred = cv2.GaussianBlur(frame, (5, 5), 0)
+    
+    hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
     height, width = frame.shape[:2]
     
     # Create color mask based on color
@@ -107,20 +110,20 @@ def detect_color_contours(frame: np.ndarray, color: str, apply_region_mask: bool
         # lower_red2 = (0, 140, 70)
         # upper_red2 = (10, 255, 225)
         # NEW: More lenient
-        lower_red1 = (170, 100, 30)
+        lower_red1 = (170, 100, 70)
         upper_red1 = (180, 255, 225)
-        lower_red2 = (0, 100, 30)
+        lower_red2 = (0, 100, 70)
         upper_red2 = (10, 255, 225)
         
         mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
         mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
         mask = cv2.bitwise_or(mask1, mask2)
     elif color == "blue":
-        lower_blue = (105, 140, 70)
+        lower_blue = (105, 20, 70)
         upper_blue = (115, 255, 225)
         mask = cv2.inRange(hsv, lower_blue, upper_blue)
     elif color == "yellow":
-        lower_yellow = (15, 50, 50)
+        lower_yellow = (15, 20, 50)
         upper_yellow = (50, 255, 255)
         mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
     else:
@@ -627,14 +630,28 @@ def remove_concave(contour: np.ndarray, frame_height: Optional[int] = None, fram
     if contour is None or len(contour) < 4:
         return contour
     
+    # Ensure contour has proper shape and data type
+    contour = contour.astype(np.int32)
+    if len(contour.shape) == 2:
+        contour = contour.reshape(-1, 1, 2)
+    
     # Compute convex hull with returnPoints=False to get indices
     hull = cv2.convexHull(contour, returnPoints=False)
     
     if hull is None or len(hull) < 3:
         return contour
     
+    # Ensure hull indices are monotonous (required for convexityDefects)
+    # Sort hull indices and make sure they're properly formatted
+    hull = np.sort(hull.flatten()).reshape(-1, 1).astype(np.int32)
+    
     # Compute convexity defects
-    defects = cv2.convexityDefects(contour, hull)
+    try:
+        defects = cv2.convexityDefects(contour, hull)
+    except cv2.error:
+        # If convexityDefects still fails, return original contour
+        print("cv2.convexityDefects failed; returning original contour.")
+        return contour
     
     if defects is None or len(defects) == 0:
         # No concave regions found
