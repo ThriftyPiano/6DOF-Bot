@@ -11,6 +11,7 @@ import org.firstinspires.ftc.vision.VisionPortal;
 import org.firstinspires.ftc.vision.VisionProcessor;
 import org.opencv.core.Mat;
 import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
 
 @TeleOp(name = "Capture Image", group = "Vision")
 public class CaptureOpMode extends LinearOpMode {
@@ -48,8 +49,11 @@ public class CaptureOpMode extends LinearOpMode {
         }
 
         if (latestFrame != null && !latestFrame.empty()) {
-            String path = "/sdcard/FIRST/capture_field.jpg";
-            boolean ok = Imgcodecs.imwrite(path, latestFrame);
+            // VisionPortal delivers RGB frames; Imgcodecs.imwrite expects BGR
+            Mat bgrFrame = new Mat();
+            Imgproc.cvtColor(latestFrame, bgrFrame, Imgproc.COLOR_RGB2BGR);
+            String path = "/sdcard/FIRST/capture_artifacts.jpg";
+            boolean ok = Imgcodecs.imwrite(path, bgrFrame);
             captured = true;
             telemetry.addData("Saved", ok ? path : "FAILED to write");
             telemetry.addData("Size", latestFrame.cols() + "x" + latestFrame.rows());

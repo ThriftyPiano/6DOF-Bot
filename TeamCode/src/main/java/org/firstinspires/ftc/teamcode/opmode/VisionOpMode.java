@@ -70,7 +70,7 @@ public class VisionOpMode extends LinearOpMode {
                 .build();
 
         FtcDashboard dashboard = FtcDashboard.getInstance();
-        // dashboard.startCameraStream(visionPortal, 0); // temporarily disabled
+        dashboard.startCameraStream(visionPortal, 0);
         telemetry = new MultipleTelemetry(telemetry, dashboard.getTelemetry());
 
         telemetry.addData("Status", "Initialized");
@@ -139,6 +139,27 @@ public class VisionOpMode extends LinearOpMode {
             List<VisionArtifactDetector.Artifact> artifacts = artifactProcessor.getLatestArtifacts();
             packet.put("Artifacts Detected", artifacts.size());
 
+            // Draw artifacts on field overlay
+            if (cameraPose != null) {
+                double cosH = Math.cos(fieldHeading);
+                double sinH = Math.sin(fieldHeading);
+                for (int i = 0; i < artifacts.size(); i++) {
+                    VisionArtifactDetector.Artifact a = artifacts.get(i);
+                    if (a.relX <= 0) continue;
+                    // Convert camera-relative (forward/lateral) to field coordinates
+                    // relX = forward (along camera heading), relY = left (positive)
+                    double fieldX = cameraPose.x + a.relX * cosH - a.relY * sinH;
+                    double fieldY = cameraPose.y + a.relX * sinH + a.relY * cosH;
+
+                    String color = a.type.contains("Green") ? "#00CC00" : "#CC00CC";
+                    fieldOverlay.setStroke(color);
+                    fieldOverlay.setFill(color);
+                    fieldOverlay.strokeCircle(fieldX, fieldY, 2.5);
+                    fieldOverlay.fillCircle(fieldX, fieldY, 2.5);
+                    packet.put("Artifact " + i, String.format("%s (%.1f, %.1f)", a.type, fieldX, fieldY));
+                }
+            }
+
             dashboard.sendTelemetryPacket(packet);
             sleep(200);
         }
@@ -181,6 +202,15 @@ public class VisionOpMode extends LinearOpMode {
                 Point p1 = new Point(a.boundingBox.x * scale, a.boundingBox.y * scale);
                 Point p2 = new Point((a.boundingBox.x + a.boundingBox.width) * scale, (a.boundingBox.y + a.boundingBox.height) * scale);
                 Imgproc.rectangle(input, p1, p2, color, 4);
+
+                // Center dot
+                Point center = new Point(a.pixelPoint.x * scale, a.pixelPoint.y * scale);
+                Imgproc.circle(input, center, 8, color, -1);
+
+                // Distance label above bounding box
+                String label = String.format("%s %.0f\" fwd %.0f\" lat", a.type, a.relX, a.relY);
+                Point textPos = new Point(p1.x, p1.y - 10);
+                Imgproc.putText(input, label, textPos, Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
             }
 
             return null;
