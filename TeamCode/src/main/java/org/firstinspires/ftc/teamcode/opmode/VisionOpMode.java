@@ -17,6 +17,7 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 import org.firstinspires.ftc.vision.VisionProcessor;
 import org.firstinspires.ftc.teamcode.vision.VisionLocalizer;
 import org.firstinspires.ftc.teamcode.vision.VisionArtifactDetector;
+import org.opencv.calib3d.Calib3d;
 import org.opencv.core.*;
 import org.opencv.imgproc.Imgproc;
 
@@ -106,32 +107,34 @@ public class VisionOpMode extends LinearOpMode {
             VisionLocalizer.VisionPose3D cameraPose = localizer.estimateCameraPoseConstrained(localizerDetections, fieldHeading);
 
             // 2. Dashboard TelemetryPacket with Field Overlay
-            TelemetryPacket packet = new TelemetryPacket();
+            TelemetryPacket packet = new TelemetryPacket(false);
+
+            // Draw DECODE field background rotated 180°
+            com.acmerobotics.dashboard.canvas.Canvas field = packet.field();
+            field.setAlpha(0.4);
+            field.drawImage("/dash/decode.webp", 72, 72, 144, 144, Math.PI, 72, 72, true);
+            field.setAlpha(1.0);
+            field.drawGrid(0, 0, 144, 144, 7, 7);
+
             packet.put("Tags Detected", currentDetections.size());
             com.acmerobotics.dashboard.canvas.Canvas fieldOverlay = packet.fieldOverlay();
+
+            // Rotate all annotations 180° around field center
+            fieldOverlay.setRotation(Math.PI);
 
             if (bluePose != null) {
                 drawPose(fieldOverlay, bluePose, "#0000FF");
                 packet.put("Blue (Tag 20)", bluePose.toString());
-                packet.put("Blue X", bluePose.x);
-                packet.put("Blue Y", bluePose.y);
-                packet.put("Blue Z", bluePose.z);
             }
             if (redPose != null) {
                 drawPose(fieldOverlay, redPose, "#FF0000");
                 packet.put("Red (Tag 24)", redPose.toString());
-                packet.put("Red X", redPose.x);
-                packet.put("Red Y", redPose.y);
-                packet.put("Red Z", redPose.z);
             }
             packet.put("IMU Yaw", Math.toDegrees(imuYaw));
             packet.put("Field Heading", Math.toDegrees(fieldHeading));
             if (cameraPose != null) {
                 drawPose(fieldOverlay, cameraPose, "#00FF00");
                 packet.put("Camera Pose (MT2)", cameraPose.toString());
-                packet.put("Cam X", cameraPose.x);
-                packet.put("Cam Y", cameraPose.y);
-                packet.put("Cam Z", cameraPose.z);
             } else {
                 packet.put("Camera Pose", "Searching for tags...");
             }
@@ -180,10 +183,15 @@ public class VisionOpMode extends LinearOpMode {
         private VisionArtifactDetector detector;
         private List<VisionArtifactDetector.Artifact> latestArtifacts = new ArrayList<>();
         private Mat resized = new Mat();
+        private Mat undistorted = new Mat();
+        private Mat cameraMatrix;
+        private MatOfDouble distCoeffs;
 
         @Override
         public void init(int width, int height, CameraCalibration calibration) {
             detector = new VisionArtifactDetector(VisionLocalizer.getArducamMatrix(), VisionLocalizer.ARDUCAM_TRANSFORM);
+            cameraMatrix = VisionLocalizer.getArducamMatrix();
+            distCoeffs = VisionLocalizer.getArducamDistCoeffs();
         }
 
         @Override
@@ -191,27 +199,29 @@ public class VisionOpMode extends LinearOpMode {
             // Resize to 1280x720 to match calibration
             localizer.prepareFrame(input, resized);
 
-            // Run Detection
-            latestArtifacts = detector.detect(resized);
+            // Undistort
+            Calib3d.undistort(resized, undistorted, cameraMatrix, distCoeffs);
 
-            // Draw detections on the original input mat (for the RC preview)
-            // Note: input is 1920x1080, detections are in 1280x720 space.
-            double scale = 1920.0 / 1280.0;
+            // Run Detection on undistorted frame
+            latestArtifacts = detector.detect(undistorted);
+
+            // Draw detections on the undistorted frame
             for (VisionArtifactDetector.Artifact a : latestArtifacts) {
                 Scalar color = a.type.contains("Green") ? new Scalar(0, 255, 0) : new Scalar(255, 0, 255);
-                Point p1 = new Point(a.boundingBox.x * scale, a.boundingBox.y * scale);
-                Point p2 = new Point((a.boundingBox.x + a.boundingBox.width) * scale, (a.boundingBox.y + a.boundingBox.height) * scale);
-                Imgproc.rectangle(input, p1, p2, color, 4);
+                Point p1 = new Point(a.boundingBox.x, a.boundingBox.y);
+                Point p2 = new Point(a.boundingBox.x + a.boundingBox.width, a.boundingBox.y + a.boundingBox.height);
+                Imgproc.rectangle(undistorted, p1, p2, color, 3);
 
-                // Center dot
-                Point center = new Point(a.pixelPoint.x * scale, a.pixelPoint.y * scale);
-                Imgproc.circle(input, center, 8, color, -1);
+                Point center = new Point(a.pixelPoint.x, a.pixelPoint.y);
+                Imgproc.circle(undistorted, center, 6, color, -1);
 
-                // Distance label above bounding box
                 String label = String.format("%s %.0f\" fwd %.0f\" lat", a.type, a.relX, a.relY);
-                Point textPos = new Point(p1.x, p1.y - 10);
-                Imgproc.putText(input, label, textPos, Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
+                Point textPos = new Point(p1.x, p1.y - 8);
+                Imgproc.putText(undistorted, label, textPos, Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, color, 2);
             }
+
+            // Copy undistorted frame back to input for dashboard camera stream
+            Imgproc.resize(undistorted, input, input.size());
 
             return null;
         }
