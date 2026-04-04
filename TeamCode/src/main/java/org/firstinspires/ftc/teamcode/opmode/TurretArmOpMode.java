@@ -29,10 +29,10 @@ public class TurretArmOpMode extends LinearOpMode {
     };
     private static String[] servoHardwareNames = new String[]{"servo 1", "servo 2", "servo 6", "servo 3", "servo 4", "servo 5"};
 
-    OpenCvWebcam webcam;
+    // OpenCvWebcam webcam;
     PerspectiveSampleDetectionPipeline pipeline;
 
-    public static String WEBCAM_NAME = "Webcam 1";
+    // public static String WEBCAM_NAME = "Webcam 1";
     public static int CAMERA_WIDTH = 1920; // 1280;
     public static int CAMERA_HEIGHT = 1080; // 720;
     public static int WHITE_BALANCE_TEMPERATURE_BLUE = 4500;
@@ -46,33 +46,33 @@ public class TurretArmOpMode extends LinearOpMode {
     @Override
     public void runOpMode() {
 
-        int cameraMonitorViewId = hardwareMap.appContext.getResources().getIdentifier(
-                "cameraMonitorViewId", "id", hardwareMap.appContext.getPackageName());
-        webcam = OpenCvCameraFactory.getInstance().createWebcam(hardwareMap.get(WebcamName.class, WEBCAM_NAME), cameraMonitorViewId);
-
-        webcam.openCameraDeviceAsync(new OpenCvCamera.AsyncCameraOpenListener() {
-            @Override
-            public void onOpened() {
-                webcam.startStreaming(CAMERA_WIDTH, CAMERA_HEIGHT,
-                        OpenCvCameraRotation.UPRIGHT, OpenCvWebcam.StreamFormat.MJPEG);
-                pipeline = new PerspectiveSampleDetectionPipeline(hardwareMap.appContext, telemetry);
-                webcam.setPipeline(pipeline);
-            }
-
-            @Override
-            public void onError(int errorCode) {
-                // Handle error appropriately
-            }
-        });
-        FtcDashboard.getInstance().startCameraStream(webcam, 0);
+//        int cameraMonitorViewId = hardwareMap.appContext.getResources().getIdentifier(
+//                "cameraMonitorViewId", "id", hardwareMap.appContext.getPackageName());
+//        webcam = OpenCvCameraFactory.getInstance().createWebcam(hardwareMap.get(WebcamName.class, WEBCAM_NAME), cameraMonitorViewId);
+//
+//        webcam.openCameraDeviceAsync(new OpenCvCamera.AsyncCameraOpenListener() {
+//            @Override
+//            public void onOpened() {
+//                webcam.startStreaming(CAMERA_WIDTH, CAMERA_HEIGHT,
+//                        OpenCvCameraRotation.UPRIGHT, OpenCvWebcam.StreamFormat.MJPEG);
+//                pipeline = new PerspectiveSampleDetectionPipeline(hardwareMap.appContext, telemetry);
+//                webcam.setPipeline(pipeline);
+//            }
+//
+//            @Override
+//            public void onError(int errorCode) {
+//                // Handle error appropriately
+//            }
+//        });
+//        FtcDashboard.getInstance().startCameraStream(webcam, 0);
 
         telemetry.addLine("Ready to start");
         telemetry.update();
         waitForStart();
 
-        GainControl gainControl = webcam.getGainControl();
-        WhiteBalanceControl wbc = webcam.getWhiteBalanceControl();
-        ExposureControl exposureControl = webcam.getExposureControl();
+//        GainControl gainControl = webcam.getGainControl();
+//        WhiteBalanceControl wbc = webcam.getWhiteBalanceControl();
+//        ExposureControl exposureControl = webcam.getExposureControl();
 
         TurretArm turretArm = new TurretArm(hardwareMap, telemetry, servoHardwareNames);
         telemetry.addData("Status", "Initializing...");
@@ -118,23 +118,23 @@ public class TurretArmOpMode extends LinearOpMode {
                 xyzPos[2] += zDelta;
             }
 
-            List<RotatedRect> detections = pipeline.getDetections();
+//            List<RotatedRect> detections = pipeline.getDetections();
+//
+//            for (int i = 0; i < detections.size(); i++) {
+//                RotatedRect detection = detections.get(i);
+//                telemetry.addData("Detection " + i, "%f %f %f %f %f",
+//                    detection.center.x, detection.center.y,
+//                    detection.size.width, detection.size.height,
+//                    detection.angle);
+//            }
 
-            for (int i = 0; i < detections.size(); i++) {
-                RotatedRect detection = detections.get(i);
-                telemetry.addData("Detection " + i, "%f %f %f %f %f",
-                    detection.center.x, detection.center.y,
-                    detection.size.width, detection.size.height,
-                    detection.angle);
-            }
-
-            if (gamepad1.a & !detections.isEmpty()) {
-                RotatedRect detection = detections.get(0);
-                xyzPos[0] = detection.center.x / 10 - 1;
-                xyzPos[1] = -detection.center.y / 10 + 6.5;
-                xyzPos[2] = 3.5;
-                wristAngle = detection.angle + Math.toDegrees(Math.atan2(xyzPos[1], xyzPos[0])) - 90;
-            }
+//            if (gamepad1.a & !detections.isEmpty()) {
+//                RotatedRect detection = detections.get(0);
+//                xyzPos[0] = detection.center.x / 10 - 1;
+//                xyzPos[1] = -detection.center.y / 10 + 6.5;
+//                xyzPos[2] = 3.5;
+//                wristAngle = detection.angle + Math.toDegrees(Math.atan2(xyzPos[1], xyzPos[0])) - 90;
+//            }
             if (gamepad1.right_stick_button) {
                 turretArm.setServoPosXYZ(xyzPos, 2);
                 turretArm.setSingleServoDegrees(wristAngle, 4, -1);
