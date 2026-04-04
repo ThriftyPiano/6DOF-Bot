@@ -56,6 +56,10 @@ public class VisionArtifactDetector {
         colorRanges.add(new ColorRange("Purple Ball", new Scalar(130, 80, 40), new Scalar(170, 255, 255)));
     }
 
+    // Area thresholds as fraction of total frame pixels (resolution-agnostic)
+    private static final double MIN_AREA_FRACTION = 0.00033; // ~300px at 1280x720
+    private static final double MAX_AREA_FRACTION = 0.022;   // ~20000px at 1280x720
+
     public List<Artifact> detect(Mat frame) {
         List<Artifact> results = new ArrayList<>();
         if (frame == null || frame.empty()) return results;
@@ -68,6 +72,10 @@ public class VisionArtifactDetector {
         double fy = cameraMatrix.get(1, 1)[0];
         double cx = cameraMatrix.get(0, 2)[0];
         double cy = cameraMatrix.get(1, 2)[0];
+
+        double totalPixels = frame.cols() * frame.rows();
+        double minArea = MIN_AREA_FRACTION * totalPixels;
+        double maxArea = MAX_AREA_FRACTION * totalPixels;
 
         for (ColorRange range : colorRanges) {
             Mat mask = new Mat();
@@ -83,7 +91,7 @@ public class VisionArtifactDetector {
 
             for (MatOfPoint contour : contours) {
                 double area = Imgproc.contourArea(contour);
-                if (area > 300 && area < 20000) { 
+                if (area > minArea && area < maxArea) {
                     Rect rect = Imgproc.boundingRect(contour);
                     double aspectRatio = (double)rect.width / rect.height;
                     if (aspectRatio > 0.6 && aspectRatio < 1.6) {
