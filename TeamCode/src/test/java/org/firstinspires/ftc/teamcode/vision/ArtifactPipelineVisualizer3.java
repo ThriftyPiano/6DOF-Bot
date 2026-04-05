@@ -26,8 +26,18 @@ public class ArtifactPipelineVisualizer3 {
 
     public static void main(String[] args) {
         String baseDir = System.getProperty("user.dir");
-        String imageDir = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/artifact_detection/images";
-        String outputBase = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/artifact_detection/pipeline3_output";
+        String detectionBase = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/artifact_detection";
+        String imageDir = args.length > 0 ? args[0] : detectionBase + "/images";
+        String outputBase = args.length > 1 ? args[1] : detectionBase + "/pipeline3_output";
+
+        // Discover all image files in imageDir
+        File[] imageFiles = new File(imageDir).listFiles((dir, name) ->
+                name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png"));
+        if (imageFiles == null || imageFiles.length == 0) {
+            System.err.println("No images found in: " + imageDir);
+            return;
+        }
+        java.util.Arrays.sort(imageFiles);
 
         VisionArtifactDetector2.ColorTarget greenTarget =
                 new VisionArtifactDetector2.ColorTarget("Green Ball", VisionArtifactDetector2.GREEN_REF_BGR, VisionArtifactDetector2.GREEN_THRESHOLD);
@@ -35,26 +45,25 @@ public class ArtifactPipelineVisualizer3 {
                 new VisionArtifactDetector2.ColorTarget("Purple Ball", VisionArtifactDetector2.PURPLE_REF_BGR, VisionArtifactDetector2.PURPLE_THRESHOLD);
 
         double minAreaFrac = 0.001;
-        double maxAreaFrac = 0.04;
 
-        for (int imgIdx = 1; imgIdx <= 5; imgIdx++) {
-            String imagePath = imageDir + "/artifact_img" + imgIdx + ".jpg";
-            Mat raw = Imgcodecs.imread(imagePath);
+        for (File imageFile : imageFiles) {
+            String imageName = imageFile.getName().replaceAll("\\.[^.]+$", "");
+            Mat raw = Imgcodecs.imread(imageFile.getAbsolutePath());
             if (raw.empty()) {
-                System.err.println("Could not load: " + imagePath);
+                System.err.println("Could not load: " + imageFile);
                 continue;
             }
-            System.out.println("\n=== Processing artifact_img" + imgIdx + ".jpg (" + raw.cols() + "x" + raw.rows() + ") ===");
-            String imgOutputDir = outputBase + "/img" + imgIdx;
+            System.out.println("\n=== Processing " + imageFile.getName() + " (" + raw.cols() + "x" + raw.rows() + ") ===");
+            String imgOutputDir = outputBase + "/" + imageName;
             new File(imgOutputDir).mkdirs();
-            String prefix = imgOutputDir + "/img" + imgIdx;
+            String prefix = imgOutputDir + "/" + imageName;
 
             // Step 1: Letterbox to 1280x720
             Mat resized = letterbox(raw, 1280, 720);
 
             double totalPixels = resized.cols() * resized.rows();
             double minArea = minAreaFrac * totalPixels;
-            double maxArea = maxAreaFrac * totalPixels;
+            int closeSize = Math.max(3, (int)(resized.cols() * 0.0086) | 1);
 
             // Step 2: Cosine similarity
             Mat greenSim = VisionArtifactDetector2.computeCosineSimilarity(resized, greenTarget);
@@ -85,8 +94,8 @@ public class ArtifactPipelineVisualizer3 {
             Imgcodecs.imwrite(prefix + "_4a_green_thresh.jpg", greenMask);
             Imgcodecs.imwrite(prefix + "_4b_purple_thresh.jpg", purpleMask);
 
-            // Step 5: Morphological close
-            Mat closeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(7, 7));
+            // Step 5: Morphological close (resolution-agnostic)
+            Mat closeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(closeSize, closeSize));
             Imgproc.morphologyEx(greenMask, greenMask, Imgproc.MORPH_CLOSE, closeKernel);
             Imgproc.morphologyEx(purpleMask, purpleMask, Imgproc.MORPH_CLOSE, closeKernel);
             closeKernel.release();
@@ -103,8 +112,8 @@ public class ArtifactPipelineVisualizer3 {
 
             // Step 7: Contours + final detections
             Mat finalVis = resized.clone();
-            drawContours(finalVis, greenMask, "Green", new Scalar(0, 255, 0), minArea, maxArea);
-            drawContours(finalVis, purpleMask, "Purple", new Scalar(255, 0, 255), minArea, maxArea);
+            drawContours(finalVis, greenMask, "Green", new Scalar(0, 255, 0), minArea);
+            drawContours(finalVis, purpleMask, "Purple", new Scalar(255, 0, 255), minArea);
             Imgcodecs.imwrite(prefix + "_7_final.jpg", finalVis);
 
             raw.release(); resized.release();
@@ -138,7 +147,7 @@ public class ArtifactPipelineVisualizer3 {
     }
 
     private static void drawContours(Mat vis, Mat mask, String label, Scalar color,
-                                     double minArea, double maxArea) {
+                                     double minArea) {
         List<MatOfPoint> contours = new ArrayList<>();
         Mat hierarchy = new Mat();
         Imgproc.findContours(mask, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
@@ -146,7 +155,7 @@ public class ArtifactPipelineVisualizer3 {
         int accepted = 0;
         for (MatOfPoint contour : contours) {
             double area = Imgproc.contourArea(contour);
-            if (area > minArea && area < maxArea) {
+            if (area > minArea) {
                 accepted++;
                 Rect rect = Imgproc.boundingRect(contour);
                 Point center = new Point(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);

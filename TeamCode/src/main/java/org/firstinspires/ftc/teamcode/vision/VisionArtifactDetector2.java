@@ -52,9 +52,10 @@ public class VisionArtifactDetector2 {
     public static final double PURPLE_THRESHOLD = 0.20;
     public static final Size BLUR_KERNEL = new Size(9, 9);
 
-    // Area thresholds as fraction of total frame pixels (resolution-agnostic)
+    // Area threshold as fraction of total frame pixels (resolution-agnostic)
     private static final double MIN_AREA_FRACTION = 0.001; // ~920px at 1280x720
-    private static final double MAX_AREA_FRACTION = 0.04; // ~36800px at 1280x720
+    // Morphological close kernel as fraction of frame width (~0.86% = 11px at 1280)
+    private static final double CLOSE_KERNEL_FRACTION = 0.0086;
 
     private final List<ColorTarget> colorTargets = new ArrayList<>();
     private Mat cameraMatrix;
@@ -79,7 +80,9 @@ public class VisionArtifactDetector2 {
 
         double totalPixels = frame.cols() * frame.rows();
         double minArea = MIN_AREA_FRACTION * totalPixels;
-        double maxArea = MAX_AREA_FRACTION * totalPixels;
+
+        // Resolution-agnostic morphological close kernel
+        int closeSize = Math.max(3, (int)(frame.cols() * CLOSE_KERNEL_FRACTION) | 1); // ensure odd
 
         for (ColorTarget target : colorTargets) {
             // 1. Cosine similarity
@@ -97,7 +100,7 @@ public class VisionArtifactDetector2 {
             sim8.release();
 
             // 3. Morphological close to fill dark patches on ball surfaces
-            Mat closeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(7, 7));
+            Mat closeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(closeSize, closeSize));
             Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, closeKernel);
             closeKernel.release();
 
@@ -111,7 +114,7 @@ public class VisionArtifactDetector2 {
 
             for (MatOfPoint contour : contours) {
                 double area = Imgproc.contourArea(contour);
-                if (area > minArea && area < maxArea) {
+                if (area > minArea) {
                     Rect rect = Imgproc.boundingRect(contour);
                     Point center = new Point(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
 
@@ -291,16 +294,22 @@ public class VisionArtifactDetector2 {
      * from the border, then OR-ing the unfilled regions (holes) back in.
      */
     public static void inverseFloodFill(Mat mask) {
-        Mat inverted = new Mat();
-        Core.bitwise_not(mask, inverted);
+        // Add 1px black border to guarantee (0,0) is background after invert
+        Mat bordered = new Mat();
+        Core.copyMakeBorder(mask, bordered, 1, 1, 1, 1, Core.BORDER_CONSTANT, new Scalar(0));
 
-        // Flood fill from (0,0) — turns background-connected white to black
+        Mat inverted = new Mat();
+        Core.bitwise_not(bordered, inverted);
+
+        // Flood fill from (0,0) — guaranteed to be white (background) in inverted
         Mat floodMask = Mat.zeros(inverted.rows() + 2, inverted.cols() + 2, CvType.CV_8U);
         Imgproc.floodFill(inverted, floodMask, new Point(0, 0), new Scalar(0));
 
-        // Remaining white pixels are interior holes; OR into original mask
-        Core.bitwise_or(mask, inverted, mask);
+        // Crop back to original size, remaining white pixels are interior holes
+        Mat holes = inverted.submat(1, 1 + mask.rows(), 1, 1 + mask.cols());
+        Core.bitwise_or(mask, holes, mask);
 
+        bordered.release();
         inverted.release();
         floodMask.release();
     }
