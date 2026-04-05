@@ -16,7 +16,7 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 import org.firstinspires.ftc.vision.VisionProcessor;
 import org.firstinspires.ftc.teamcode.vision.VisionLocalizer;
-import org.firstinspires.ftc.teamcode.vision.VisionArtifactDetector;
+import org.firstinspires.ftc.teamcode.vision.VisionArtifactDetector2;
 import org.opencv.calib3d.Calib3d;
 import org.opencv.core.*;
 import org.opencv.imgproc.Imgproc;
@@ -139,7 +139,7 @@ public class VisionOpMode extends LinearOpMode {
                 packet.put("Camera Pose", "Searching for tags...");
             }
 
-            List<VisionArtifactDetector.Artifact> artifacts = artifactProcessor.getLatestArtifacts();
+            List<VisionArtifactDetector2.Artifact> artifacts = artifactProcessor.getLatestArtifacts();
             packet.put("Artifacts Detected", artifacts.size());
 
             // Draw artifacts on field overlay
@@ -147,7 +147,7 @@ public class VisionOpMode extends LinearOpMode {
                 double cosH = Math.cos(fieldHeading);
                 double sinH = Math.sin(fieldHeading);
                 for (int i = 0; i < artifacts.size(); i++) {
-                    VisionArtifactDetector.Artifact a = artifacts.get(i);
+                    VisionArtifactDetector2.Artifact a = artifacts.get(i);
                     if (a.relX <= 0) continue;
                     // Convert camera-relative (forward/lateral) to field coordinates
                     // relX = forward (along camera heading), relY = left (positive)
@@ -180,16 +180,15 @@ public class VisionOpMode extends LinearOpMode {
      * Custom VisionProcessor to run our Artifact Detector inside the VisionPortal pipeline.
      */
     public class ArtifactProcessor implements VisionProcessor {
-        private VisionArtifactDetector detector;
-        private List<VisionArtifactDetector.Artifact> latestArtifacts = new ArrayList<>();
+        private VisionArtifactDetector2 detector;
+        private List<VisionArtifactDetector2.Artifact> latestArtifacts = new ArrayList<>();
         private Mat resized = new Mat();
-        private Mat undistorted = new Mat();
         private Mat cameraMatrix;
         private MatOfDouble distCoeffs;
 
         @Override
         public void init(int width, int height, CameraCalibration calibration) {
-            detector = new VisionArtifactDetector(VisionLocalizer.getArducamMatrix(), VisionLocalizer.ARDUCAM_TRANSFORM);
+            detector = new VisionArtifactDetector2(VisionLocalizer.getArducamMatrix(), VisionLocalizer.ARDUCAM_TRANSFORM);
             cameraMatrix = VisionLocalizer.getArducamMatrix();
             distCoeffs = VisionLocalizer.getArducamDistCoeffs();
         }
@@ -199,29 +198,43 @@ public class VisionOpMode extends LinearOpMode {
             // Resize to 1280x720 to match calibration
             localizer.prepareFrame(input, resized);
 
-            // Undistort
-            Calib3d.undistort(resized, undistorted, cameraMatrix, distCoeffs);
+            // Run detection on distorted frame (cosine similarity is robust to distortion)
+            latestArtifacts = detector.detect(resized);
 
-            // Run Detection on undistorted frame
-            latestArtifacts = detector.detect(undistorted);
+            // Undistort detected center points for accurate position estimation
+            if (!latestArtifacts.isEmpty()) {
+                Point[] distorted = new Point[latestArtifacts.size()];
+                for (int i = 0; i < latestArtifacts.size(); i++) {
+                    distorted[i] = latestArtifacts.get(i).pixelPoint;
+                }
+                MatOfPoint2f distortedMat = new MatOfPoint2f(distorted);
+                MatOfPoint2f undistortedMat = new MatOfPoint2f();
+                Calib3d.undistortPoints(distortedMat, undistortedMat, cameraMatrix, distCoeffs, new Mat(), cameraMatrix);
+                Point[] undistortedPts = undistortedMat.toArray();
+                for (int i = 0; i < latestArtifacts.size(); i++) {
+                    latestArtifacts.get(i).pixelPoint = undistortedPts[i];
+                }
+                distortedMat.release();
+                undistortedMat.release();
+            }
 
-            // Draw detections on the undistorted frame
-            for (VisionArtifactDetector.Artifact a : latestArtifacts) {
+            // Draw detections on the resized frame
+            for (VisionArtifactDetector2.Artifact a : latestArtifacts) {
                 Scalar color = a.type.contains("Green") ? new Scalar(0, 255, 0) : new Scalar(255, 0, 255);
                 Point p1 = new Point(a.boundingBox.x, a.boundingBox.y);
                 Point p2 = new Point(a.boundingBox.x + a.boundingBox.width, a.boundingBox.y + a.boundingBox.height);
-                Imgproc.rectangle(undistorted, p1, p2, color, 3);
+                Imgproc.rectangle(resized, p1, p2, color, 3);
 
                 Point center = new Point(a.pixelPoint.x, a.pixelPoint.y);
-                Imgproc.circle(undistorted, center, 6, color, -1);
+                Imgproc.circle(resized, center, 6, color, -1);
 
                 String label = String.format("%s %.0f\" fwd %.0f\" lat", a.type, a.relX, a.relY);
                 Point textPos = new Point(p1.x, p1.y - 8);
-                Imgproc.putText(undistorted, label, textPos, Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, color, 2);
+                Imgproc.putText(resized, label, textPos, Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, color, 2);
             }
 
-            // Copy undistorted frame back to input for dashboard camera stream
-            Imgproc.resize(undistorted, input, input.size());
+            // Copy frame back to input for dashboard camera stream
+            Imgproc.resize(resized, input, input.size());
 
             return null;
         }
@@ -229,7 +242,7 @@ public class VisionOpMode extends LinearOpMode {
         @Override
         public void onDrawFrame(Canvas canvas, int onscreenWidth, int onscreenHeight, float scaleBmpPxToCanvasPx, float scaleCanvasDensity, Object userContext) {}
 
-        public List<VisionArtifactDetector.Artifact> getLatestArtifacts() {
+        public List<VisionArtifactDetector2.Artifact> getLatestArtifacts() {
             return latestArtifacts;
         }
     }
