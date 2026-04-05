@@ -39,10 +39,8 @@ public class ArtifactPipelineVisualizer {
 
     public static void main(String[] args) {
         String baseDir = System.getProperty("user.dir");
-        String imageDir = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision";
-        String outputDir = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/pipeline_output";
-
-        new File(outputDir).mkdirs();
+        String imageDir = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/artifact_detection/images";
+        String outputBase = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/artifact_detection/pipeline_output";
 
         Mat cameraMatrix = VisionLocalizer.getArducamMatrix();
         MatOfDouble distCoeffs = VisionLocalizer.getArducamDistCoeffs();
@@ -61,7 +59,9 @@ public class ArtifactPipelineVisualizer {
                 continue;
             }
             System.out.println("\n=== Processing artifact_img" + imgIdx + ".jpg (" + raw.cols() + "x" + raw.rows() + ") ===");
-            String prefix = outputDir + "/img" + imgIdx;
+            String imgOutputDir = outputBase + "/img" + imgIdx;
+            new File(imgOutputDir).mkdirs();
+            String prefix = imgOutputDir + "/img" + imgIdx;
 
             // Step 0: Save raw input
             Imgcodecs.imwrite(prefix + "_0_raw.jpg", raw);
@@ -121,7 +121,7 @@ public class ArtifactPipelineVisualizer {
         }
 
         System.out.println("\n=== Pipeline visualization complete ===");
-        System.out.println("Output saved to: " + outputDir);
+        System.out.println("Output saved to: " + outputBase);
     }
 
     /**

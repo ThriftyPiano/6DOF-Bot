@@ -25,10 +25,8 @@ public class ArtifactPipelineVisualizer2 {
 
     public static void main(String[] args) {
         String baseDir = System.getProperty("user.dir");
-        String imageDir = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision";
-        String outputDir = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/pipeline2_output";
-
-        new File(outputDir).mkdirs();
+        String imageDir = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/artifact_detection/images";
+        String outputBase = baseDir + "/TeamCode/src/test/java/org/firstinspires/ftc/teamcode/vision/artifact_detection/pipeline2_output";
 
         Mat cameraMatrix = VisionLocalizer.getArducamMatrix();
         VisionLocalizer.VisionPose3D cameraTransform = VisionLocalizer.ARDUCAM_TRANSFORM;
@@ -54,7 +52,9 @@ public class ArtifactPipelineVisualizer2 {
                 continue;
             }
             System.out.println("\n=== Processing artifact_img" + imgIdx + ".jpg (" + raw.cols() + "x" + raw.rows() + ") ===");
-            String prefix = outputDir + "/img" + imgIdx;
+            String imgOutputDir = outputBase + "/img" + imgIdx;
+            new File(imgOutputDir).mkdirs();
+            String prefix = imgOutputDir + "/img" + imgIdx;
 
             // Step 0: Raw
             Imgcodecs.imwrite(prefix + "_0_raw.jpg", raw);
@@ -73,6 +73,18 @@ public class ArtifactPipelineVisualizer2 {
 
             saveHeatmap(greenSim, prefix + "_2a_green_cosine.jpg");
             saveHeatmap(purpleSim, prefix + "_2b_purple_cosine.jpg");
+
+            // Debug: save individual components for image 1 only
+            if (imgIdx == 1) {
+                Mat[] greenParts = VisionArtifactDetector2.computeCosineSimilarityComponents(resized, greenTarget);
+                Mat[] purpleParts = VisionArtifactDetector2.computeCosineSimilarityComponents(resized, purpleTarget);
+                saveHeatmap(greenParts[0], prefix + "_debug_green_cossim.jpg");
+                saveHeatmap(greenParts[1], prefix + "_debug_green_satweight.jpg");
+                saveHeatmap(purpleParts[0], prefix + "_debug_purple_cossim.jpg");
+                saveHeatmap(purpleParts[1], prefix + "_debug_purple_satweight.jpg");
+                for (Mat m : greenParts) m.release();
+                for (Mat m : purpleParts) m.release();
+            }
 
             // Step 3: Convert to 8-bit + Gaussian blur
             Mat greenSim8 = new Mat(), purpleSim8 = new Mat();
@@ -117,7 +129,14 @@ public class ArtifactPipelineVisualizer2 {
             Imgcodecs.imwrite(prefix + "_6a_green_floodfill.jpg", greenMask);
             Imgcodecs.imwrite(prefix + "_6b_purple_floodfill.jpg", purpleMask);
 
-            // Step 7: Contours + final detections
+            // Step 7: Hough circle detection on floodfilled masks
+            Mat houghVis = resized.clone();
+            drawHoughCircles(houghVis, greenMask, "Green", new Scalar(0, 255, 0));
+            drawHoughCircles(houghVis, purpleMask, "Purple", new Scalar(255, 0, 255));
+            Imgcodecs.imwrite(prefix + "_7_hough.jpg", houghVis);
+            houghVis.release();
+
+            // Step 8: Contours + final detections
             Mat contourVis = resized.clone();
             Mat finalVis = resized.clone();
 
@@ -126,8 +145,8 @@ public class ArtifactPipelineVisualizer2 {
             processContours(contourVis, finalVis, purpleMask, "Purple Ball",
                     new Scalar(255, 0, 255), fx, fy, cx, cy, cameraTransform.z, minArea, maxArea);
 
-            Imgcodecs.imwrite(prefix + "_7_contours.jpg", contourVis);
-            Imgcodecs.imwrite(prefix + "_8_final.jpg", finalVis);
+            Imgcodecs.imwrite(prefix + "_8_contours.jpg", contourVis);
+            Imgcodecs.imwrite(prefix + "_9_final.jpg", finalVis);
 
             raw.release(); resized.release();
             greenMask.release(); purpleMask.release();
@@ -135,7 +154,132 @@ public class ArtifactPipelineVisualizer2 {
         }
 
         System.out.println("\n=== Pipeline v2 visualization complete ===");
-        System.out.println("Output saved to: " + outputDir);
+        System.out.println("Output saved to: " + outputBase);
+    }
+
+    private static void drawHoughCircles(Mat vis, Mat mask, String label, Scalar color) {
+        Mat blurred = new Mat();
+        Imgproc.GaussianBlur(mask, blurred, new Size(5, 5), 0);
+
+        Mat circles = new Mat();
+        Imgproc.HoughCircles(blurred, circles, Imgproc.HOUGH_GRADIENT,
+                1.5, 40, 50, 30, 15, 120);
+        blurred.release();
+
+        List<double[]> raw = new ArrayList<>();
+        for (int i = 0; i < circles.cols(); i++) {
+            raw.add(circles.get(0, i));
+        }
+        circles.release();
+
+        // Filter: only keep circles that are mostly filled with positive (white) pixels
+        List<double[]> positive = new ArrayList<>();
+        for (double[] c : raw) {
+            int cx = (int) Math.round(c[0]);
+            int cy = (int) Math.round(c[1]);
+            int r = (int) Math.round(c[2]);
+
+            // Count white pixels inside the circle
+            int whiteCount = 0, totalCount = 0;
+            int x0 = Math.max(0, cx - r), x1 = Math.min(mask.cols() - 1, cx + r);
+            int y0 = Math.max(0, cy - r), y1 = Math.min(mask.rows() - 1, cy + r);
+            for (int y = y0; y <= y1; y++) {
+                for (int x = x0; x <= x1; x++) {
+                    if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r) {
+                        totalCount++;
+                        if (mask.get(y, x)[0] > 0) whiteCount++;
+                    }
+                }
+            }
+            double fillRatio = totalCount > 0 ? (double) whiteCount / totalCount : 0;
+            if (fillRatio > 0.5) {
+                positive.add(c);
+            }
+        }
+
+        // Remove circles almost fully contained within a larger circle
+        List<double[]> filtered = new ArrayList<>();
+        for (int i = 0; i < positive.size(); i++) {
+            double[] ci = positive.get(i);
+            boolean contained = false;
+            for (int j = 0; j < positive.size(); j++) {
+                if (i == j) continue;
+                double[] cj = positive.get(j);
+                if (cj[2] <= ci[2]) continue;
+                double dist = Math.sqrt(Math.pow(ci[0] - cj[0], 2) + Math.pow(ci[1] - cj[1], 2));
+                if (dist + ci[2] < cj[2] * 1.2) {
+                    contained = true;
+                    break;
+                }
+            }
+            if (!contained) filtered.add(ci);
+        }
+
+        // Merge overlapping circles of similar size
+        // Use average center, radius = half the distance between intersection points
+        List<double[]> merged = new ArrayList<>();
+        boolean[] used = new boolean[filtered.size()];
+        for (int i = 0; i < filtered.size(); i++) {
+            if (used[i]) continue;
+            double[] ci = filtered.get(i);
+            List<double[]> group = new ArrayList<>();
+            group.add(ci);
+            for (int j = i + 1; j < filtered.size(); j++) {
+                if (used[j]) continue;
+                double[] cj = filtered.get(j);
+                double dist = Math.sqrt(Math.pow(ci[0] - cj[0], 2) + Math.pow(ci[1] - cj[1], 2));
+                double maxR = Math.max(ci[2], cj[2]);
+                double minR = Math.min(ci[2], cj[2]);
+                if (dist < maxR * 0.7 && minR > maxR * 0.5) {
+                    group.add(cj);
+                    used[j] = true;
+                }
+            }
+            if (group.size() == 1) {
+                merged.add(ci);
+            } else {
+                // Average center
+                double sumX = 0, sumY = 0;
+                for (double[] g : group) { sumX += g[0]; sumY += g[1]; }
+                double avgX = sumX / group.size();
+                double avgY = sumY / group.size();
+
+                // Radius from intersection points of first two circles
+                double[] c1 = group.get(0), c2 = group.get(1);
+                double d = Math.sqrt(Math.pow(c1[0] - c2[0], 2) + Math.pow(c1[1] - c2[1], 2));
+                double r1 = c1[2], r2 = c2[2];
+                // Half-chord length: h = sqrt(r1^2 - a^2) where a = (d^2 + r1^2 - r2^2) / (2d)
+                double a = (d * d + r1 * r1 - r2 * r2) / (2 * d);
+                double hSq = r1 * r1 - a * a;
+                double mergedR;
+                if (hSq > 0) {
+                    mergedR = Math.sqrt(hSq); // half the intersection chord distance
+                } else {
+                    // Circles don't actually intersect, fall back to average
+                    double sumR = 0;
+                    for (double[] g : group) sumR += g[2];
+                    mergedR = sumR / group.size();
+                }
+                merged.add(new double[]{avgX, avgY, mergedR});
+            }
+        }
+
+        System.out.printf("  [%s] Hough: %d raw -> %d positive -> %d filtered -> %d merged\n",
+                label, raw.size(), positive.size(), filtered.size(), merged.size());
+
+        for (double[] c : merged) {
+            Point center = new Point(c[0], c[1]);
+            int radius = (int) Math.round(c[2]);
+            Imgproc.circle(vis, center, radius, color, 2);
+            Imgproc.circle(vis, center, 4, color, -1);
+            Point bottom = new Point(center.x, center.y + radius);
+            Imgproc.circle(vis, bottom, 4, new Scalar(0, 0, 255), -1);
+            Imgproc.line(vis, center, bottom, new Scalar(0, 0, 255), 1);
+            Imgproc.putText(vis, String.format("%s r=%d", label, radius),
+                    new Point(center.x + radius + 5, center.y),
+                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.4, color, 1);
+            System.out.printf("    center=(%.0f,%.0f) r=%d\n", c[0], c[1], radius);
+        }
     }
 
     private static Mat letterbox(Mat input, int targetW, int targetH) {

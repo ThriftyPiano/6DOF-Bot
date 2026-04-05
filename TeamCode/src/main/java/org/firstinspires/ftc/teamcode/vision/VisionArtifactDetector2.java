@@ -6,8 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * VisionArtifactDetector2 identifies game elements (artifacts) using cosine similarity
- * color matching and inverse floodfill for hole closing.
+ * VisionArtifactDetector2 identifies game elements (artifacts) using
+ * saturation-weighted chrominance cosine similarity.
  */
 public class VisionArtifactDetector2 {
 
@@ -36,13 +36,11 @@ public class VisionArtifactDetector2 {
     public static class ColorTarget {
         public String label;
         public double[] refBGR;
-        public double refNorm;
-        public double threshold; // 0-1 cosine similarity threshold
+        public double threshold;
 
         public ColorTarget(String label, double[] refBGR, double threshold) {
             this.label = label;
             this.refBGR = refBGR;
-            this.refNorm = Math.sqrt(refBGR[0] * refBGR[0] + refBGR[1] * refBGR[1] + refBGR[2] * refBGR[2]);
             this.threshold = threshold;
         }
     }
@@ -50,8 +48,8 @@ public class VisionArtifactDetector2 {
     // Reference colors in BGR
     public static final double[] GREEN_REF_BGR = {136, 178, 90}; // #5ab288
     public static final double[] PURPLE_REF_BGR = {150, 40, 130};
-    public static final double GREEN_THRESHOLD = 0.45;
-    public static final double PURPLE_THRESHOLD = 0.45;
+    public static final double GREEN_THRESHOLD = 0.17;
+    public static final double PURPLE_THRESHOLD = 0.20;
     public static final Size BLUR_KERNEL = new Size(9, 9);
 
     // Area thresholds as fraction of total frame pixels (resolution-agnostic)
@@ -87,7 +85,7 @@ public class VisionArtifactDetector2 {
             // 1. Cosine similarity
             Mat similarity = computeCosineSimilarity(frame, target);
 
-            // 2. Gaussian blur + Otsu adaptive threshold (excluding zero-padding)
+            // 2. Gaussian blur + fixed threshold
             Mat sim8 = new Mat();
             similarity.convertTo(sim8, CvType.CV_8U, 255.0);
             similarity.release();
@@ -99,7 +97,7 @@ public class VisionArtifactDetector2 {
             sim8.release();
 
             // 3. Morphological close to fill dark patches on ball surfaces
-            Mat closeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(11, 11));
+            Mat closeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(7, 7));
             Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, closeKernel);
             closeKernel.release();
 
@@ -198,12 +196,19 @@ public class VisionArtifactDetector2 {
         Core.divide(dot, pixMag, cosSim);
         Core.multiply(cosSim, new Scalar(1.0 / refChromaNorm), cosSim);
 
+        // Clamp cos_sim to [0, 1] before squaring
+        Imgproc.threshold(cosSim, cosSim, 0, 0, Imgproc.THRESH_TOZERO);
+        Imgproc.threshold(cosSim, cosSim, 1.0, 1.0, Imgproc.THRESH_TRUNC);
+
+        // Square cos_sim to sharpen hue selectivity
+        Core.multiply(cosSim, cosSim, cosSim);
+
         // saturation weight = min(pixMag / refChromaNorm, 1.0)
         Mat satWeight = new Mat();
         Core.multiply(pixMag, new Scalar(1.0 / refChromaNorm), satWeight);
         Imgproc.threshold(satWeight, satWeight, 1.0, 1.0, Imgproc.THRESH_TRUNC);
 
-        // score = cos_sim * satWeight
+        // score = cos_sim^2 * satWeight
         Mat result = new Mat();
         Core.multiply(cosSim, satWeight, result);
 
@@ -216,6 +221,69 @@ public class VisionArtifactDetector2 {
         pixMag.release(); cosSim.release(); satWeight.release();
 
         return result;
+    }
+
+    /**
+     * Returns the two components separately: [cos_sim², satWeight].
+     * For debugging/visualization only.
+     */
+    public static Mat[] computeCosineSimilarityComponents(Mat bgr, ColorTarget target) {
+        List<Mat> channels = new ArrayList<>();
+        Core.split(bgr, channels);
+
+        Mat bf = new Mat(), gf = new Mat(), rf = new Mat();
+        channels.get(0).convertTo(bf, CvType.CV_64F);
+        channels.get(1).convertTo(gf, CvType.CV_64F);
+        channels.get(2).convertTo(rf, CvType.CV_64F);
+        for (Mat ch : channels) ch.release();
+
+        Mat mean = new Mat();
+        Core.add(bf, gf, mean);
+        Core.add(mean, rf, mean);
+        Core.multiply(mean, new Scalar(1.0 / 3.0), mean);
+        Core.subtract(bf, mean, bf);
+        Core.subtract(gf, mean, gf);
+        Core.subtract(rf, mean, rf);
+        mean.release();
+
+        double refMean = (target.refBGR[0] + target.refBGR[1] + target.refBGR[2]) / 3.0;
+        double rb = target.refBGR[0] - refMean;
+        double rg = target.refBGR[1] - refMean;
+        double rr = target.refBGR[2] - refMean;
+        double refChromaNorm = Math.sqrt(rb * rb + rg * rg + rr * rr);
+
+        Mat dot = new Mat(), temp = new Mat();
+        Core.multiply(bf, new Scalar(rb), dot);
+        Core.multiply(gf, new Scalar(rg), temp);
+        Core.add(dot, temp, dot);
+        Core.multiply(rf, new Scalar(rr), temp);
+        Core.add(dot, temp, dot);
+
+        Mat pixMagSq = new Mat();
+        Core.multiply(bf, bf, pixMagSq);
+        Core.multiply(gf, gf, temp);
+        Core.add(pixMagSq, temp, pixMagSq);
+        Core.multiply(rf, rf, temp);
+        Core.add(pixMagSq, temp, pixMagSq);
+        Mat pixMag = new Mat();
+        Core.sqrt(pixMagSq, pixMag);
+        Core.add(pixMag, new Scalar(1e-6), pixMag);
+
+        Mat cosSim = new Mat();
+        Core.divide(dot, pixMag, cosSim);
+        Core.multiply(cosSim, new Scalar(1.0 / refChromaNorm), cosSim);
+        Imgproc.threshold(cosSim, cosSim, 0, 0, Imgproc.THRESH_TOZERO);
+        Imgproc.threshold(cosSim, cosSim, 1.0, 1.0, Imgproc.THRESH_TRUNC);
+        Core.multiply(cosSim, cosSim, cosSim);
+
+        Mat satWeight = new Mat();
+        Core.multiply(pixMag, new Scalar(1.0 / refChromaNorm), satWeight);
+        Imgproc.threshold(satWeight, satWeight, 1.0, 1.0, Imgproc.THRESH_TRUNC);
+
+        bf.release(); gf.release(); rf.release();
+        temp.release(); dot.release(); pixMagSq.release(); pixMag.release();
+
+        return new Mat[]{cosSim, satWeight};
     }
 
     /**
